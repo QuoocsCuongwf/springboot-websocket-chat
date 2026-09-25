@@ -1,3 +1,21 @@
 spring:
   application:
     name: nextchat
+  profiles:
+    active: dev
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/messenger_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+app:
+  security:
+    jwt:
+      # Override in production with NEXTCHAT_JWT_SECRET or an external config.
+      secret: ${NEXTCHAT_JWT_SECRET:change-this-development-secret-to-a-random-32-byte-value}
+      expiration: ${NEXTCHAT_JWT_EXPIRATION:PT15M}
+  seed:
+    password: ${NEXTCHAT_SEED_PASSWORD:ChangeMe123!}
