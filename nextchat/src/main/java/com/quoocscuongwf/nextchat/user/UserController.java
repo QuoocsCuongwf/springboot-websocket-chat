@@ -1,5 +1,7 @@
 package com.quoocscuongwf.nextchat.user;
 
+import com.quoocscuongwf.nextchat.common.dto.ApiResponse;
+import com.quoocscuongwf.nextchat.user.dto.UserProfileResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,7 +20,7 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public UserProfile currentUser(Authentication authentication) {
+    public ApiResponse<UserProfileResponse> currentUser(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof UserDetails details)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
@@ -27,8 +29,8 @@ public class UserController {
                 .filter(found -> found.isActive() && !found.isDeleted())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
 
-        return new UserProfile(user.getId(), user.getUsername(), user.getEmail(), user.getFullName());
+        return ApiResponse.success("User profile loaded",
+                new UserProfileResponse(user.getId(), user.getUsername(),
+                        user.getEmail(), user.getFullName()));
     }
-
-    public record UserProfile(Long id, String username, String email, String fullName) {}
 }
