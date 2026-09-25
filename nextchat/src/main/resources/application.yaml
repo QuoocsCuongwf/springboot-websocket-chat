@@ -1,3 +1,14 @@
 spring:
   application:
     name: nextchat
+  profile:
+    active: dev
+
+app:
+  security:
+    jwt:
+      # Override in production with NEXTCHAT_JWT_SECRET or an external config.
+      secret: ${NEXTCHAT_JWT_SECRET:change-this-development-secret-to-a-random-32-byte-value}
+      expiration: ${NEXTCHAT_JWT_EXPIRATION:PT15M}
+  seed:
+    password: ${NEXTCHAT_SEED_PASSWORD:ChangeMe123!}
