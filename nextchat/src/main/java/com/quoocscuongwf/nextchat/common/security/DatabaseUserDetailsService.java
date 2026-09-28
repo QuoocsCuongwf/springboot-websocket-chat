@@ -17,9 +17,12 @@ public class DatabaseUserDetailsService implements UserDetailsService {
         var user = users.findByUsername(username)
                 .filter(found -> found.isActive() && !found.isDeleted())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+        String[] authorities = user.getRoles().stream()
+                .map(role -> role.getName())
+                .toArray(String[]::new);
         return User.withUsername(user.getUsername())
                 .password(user.getPasswordHash())
-                .authorities("ROLE_USER")
+                .authorities(authorities)
                 .build();
     }
 }

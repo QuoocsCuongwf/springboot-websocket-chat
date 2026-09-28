@@ -2,6 +2,8 @@ package com.quoocscuongwf.nextchat.config;
 
 import com.quoocscuongwf.nextchat.user.User;
 import com.quoocscuongwf.nextchat.user.UserRepository;
+import com.quoocscuongwf.nextchat.user.Role;
+import com.quoocscuongwf.nextchat.user.RoleRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
@@ -15,13 +17,18 @@ public class SeedDataConfig {
     @Bean
     CommandLineRunner seedUsers(
             UserRepository users,
+            RoleRepository roles,
             PasswordEncoder passwordEncoder,
             @Value("${app.seed.password:ChangeMe123!}") String seedPassword) {
         return args -> {
+            Role userRole = roles.findByName("ROLE_USER")
+                    .orElseGet(() -> roles.save(new Role("ROLE_USER")));
+            roles.findByName("ROLE_ADMIN")
+                    .orElseGet(() -> roles.save(new Role("ROLE_ADMIN")));
             createUserIfMissing(users, passwordEncoder, seedPassword,
-                    "alice", "alice@example.com", "Alice");
+                    userRole, "alice", "alice@example.com", "Alice");
             createUserIfMissing(users, passwordEncoder, seedPassword,
-                    "bob", "bob@example.com", "Bob");
+                    userRole, "bob", "bob@example.com", "Bob");
         };
     }
 
@@ -29,11 +36,14 @@ public class SeedDataConfig {
             UserRepository users,
             PasswordEncoder passwordEncoder,
             String seedPassword,
+            Role userRole,
             String username,
             String email,
             String fullName) {
         if (!users.existsByUsername(username) && !users.existsByEmail(email)) {
-            users.save(new User(username, email, passwordEncoder.encode(seedPassword), fullName));
+            User user = new User(username, email, passwordEncoder.encode(seedPassword), fullName);
+            user.addRole(userRole);
+            users.save(user);
         }
     }
 }

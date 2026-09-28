@@ -1,8 +1,8 @@
 package com.quoocscuongwf.nextchat.user;
 
 import jakarta.persistence.*;
-import java.util.HashSet;
 import java.util.Set;
+import java.util.HashSet;
 
 @Entity
 @Table(name = "users")
@@ -22,10 +22,11 @@ public class User {
     private boolean active = true;
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted;
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
-    @Column(name = "role_id")
-    private Set<Long> roleIds = new HashSet<>();
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(name = "user_roles",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "role_id"))
+    private Set<Role> roles = new HashSet<>();
 
     protected User() {}
 
@@ -43,4 +44,6 @@ public class User {
     public String getFullName() { return fullName; }
     public boolean isActive() { return active; }
     public boolean isDeleted() { return deleted; }
+    public Set<Role> getRoles() { return roles; }
+    public void addRole(Role role) { roles.add(role); }
 }
