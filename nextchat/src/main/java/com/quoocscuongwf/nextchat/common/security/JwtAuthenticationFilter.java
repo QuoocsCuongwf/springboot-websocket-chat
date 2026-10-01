@@ -1,4 +1,4 @@
-package com.quoocscuongwf.nextchat.security;
+package com.quoocscuongwf.nextchat.common.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
