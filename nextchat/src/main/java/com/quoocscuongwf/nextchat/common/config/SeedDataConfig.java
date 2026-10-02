@@ -1,4 +1,4 @@
-package com.quoocscuongwf.nextchat.config;
+package com.quoocscuongwf.nextchat.common.config;
 
 import com.quoocscuongwf.nextchat.user.User;
 import com.quoocscuongwf.nextchat.user.UserRepository;

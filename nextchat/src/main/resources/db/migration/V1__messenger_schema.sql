@@ -290,3 +290,115 @@ CREATE TABLE call_participants (
 --   hypersistence-utils) mới ghi/đọc đúng kiểu này -> không khuyến nghị
 --   khi mới học.
 -- =====================================================================
+
+-- =====================================================================
+-- 7. STORED PROCEDURES / FUNCTIONS (PLpgSQL)
+-- =====================================================================
+
+-- Lấy lịch sử tin nhắn phòng chat phân trang, tối ưu truy vấn kết hợp thông tin người gửi
+CREATE OR REPLACE FUNCTION get_room_messages(
+    p_room_id BIGINT,
+    p_page INT,
+    p_size INT
+)
+RETURNS TABLE (
+    id BIGINT,
+    conversation_id BIGINT,
+    sender_id BIGINT,
+    sender_username VARCHAR(50),
+    sender_full_name VARCHAR(150),
+    sender_avatar_url VARCHAR(500),
+    message_type VARCHAR(10),
+    content TEXT,
+    reply_to_message_id BIGINT,
+    is_edited BOOLEAN,
+    is_deleted BOOLEAN,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    total_count BIGINT
+) AS $$
+DECLARE
+    v_offset INT := GREATEST(p_page, 0) * GREATEST(p_size, 1);
+    v_total BIGINT;
+BEGIN
+    SELECT COUNT(*) INTO v_total
+    FROM messages m
+    WHERE m.conversation_id = p_room_id
+      AND m.is_deleted = FALSE;
+
+    RETURN QUERY
+    SELECT
+        m.id,
+        m.conversation_id,
+        m.sender_id,
+        u.username AS sender_username,
+        u.full_name AS sender_full_name,
+        u.avatar_url AS sender_avatar_url,
+        m.message_type,
+        m.content,
+        m.reply_to_message_id,
+        m.is_edited,
+        m.is_deleted,
+        m.created_at,
+        m.updated_at,
+        COALESCE(v_total, 0) AS total_count
+    FROM messages m
+    JOIN users u ON m.sender_id = u.id
+    WHERE m.conversation_id = p_room_id
+      AND m.is_deleted = FALSE
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT GREATEST(p_size, 1) OFFSET v_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Tạo hoặc lấy phòng chat 1-1 giữa 2 người (Atomic & tối ưu)
+CREATE OR REPLACE FUNCTION get_or_create_direct_room(
+    p_user_a BIGINT,
+    p_user_b BIGINT
+)
+RETURNS BIGINT AS $$
+DECLARE
+    v_room_id BIGINT;
+BEGIN
+    IF p_user_a = p_user_b THEN
+        RAISE EXCEPTION 'A private room requires two different users';
+    END IF;
+
+    -- The same ordered advisory lock is taken for either request direction.
+    -- It prevents concurrent requests from creating duplicate private rooms.
+    PERFORM pg_advisory_xact_lock(
+        hashtextextended(
+            LEAST(p_user_a, p_user_b)::TEXT || ':' || GREATEST(p_user_a, p_user_b)::TEXT,
+            0
+        )
+    );
+
+    SELECT cp1.conversation_id INTO v_room_id
+    FROM conversation_participants cp1
+    JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id
+    JOIN conversations c ON c.id = cp1.conversation_id
+    WHERE c.type = 'PRIVATE'
+      AND cp1.user_id = p_user_a
+      AND cp2.user_id = p_user_b
+      AND cp1.left_at IS NULL
+      AND cp2.left_at IS NULL
+    ORDER BY c.id
+    LIMIT 1;
+
+    IF v_room_id IS NOT NULL THEN
+        RETURN v_room_id;
+    END IF;
+
+    INSERT INTO conversations (type, created_by, created_at, updated_at)
+    VALUES ('PRIVATE', p_user_a, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    RETURNING id INTO v_room_id;
+
+    INSERT INTO conversation_participants (conversation_id, user_id, role, joined_at)
+    VALUES (v_room_id, p_user_a, 'OWNER', CURRENT_TIMESTAMP);
+
+    INSERT INTO conversation_participants (conversation_id, user_id, role, joined_at)
+    VALUES (v_room_id, p_user_b, 'MEMBER', CURRENT_TIMESTAMP);
+
+    RETURN v_room_id;
+END;
+$$ LANGUAGE plpgsql;

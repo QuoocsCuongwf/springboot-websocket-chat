@@ -1,4 +1,4 @@
-package com.quoocscuongwf.nextchat.security;
+package com.quoocscuongwf.nextchat.common.security;
 
 import com.quoocscuongwf.nextchat.user.UserRepository;
 import org.springframework.security.core.userdetails.*;
