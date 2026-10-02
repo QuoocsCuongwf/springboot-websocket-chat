@@ -3,6 +3,8 @@ spring:
     name: nextchat
   profiles:
     active: dev
+  config:
+    import : optionl:file:nextchat/src/main/resources/.env[.properties]
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/messenger_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
