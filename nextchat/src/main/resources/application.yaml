@@ -2,13 +2,19 @@ spring:
   application:
     name: nextchat
   profiles:
-    active: dev
+    default: dev
   config:
-    import : optionl:file:.env[.properties]
+    import:
+      - optional:file:../database.yml
+      - optional:file:.env
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/messenger_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/${POSTGRES_DB:messenger_db}}
+    username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:change-this-database-password}}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -16,8 +22,9 @@ spring:
 app:
   security:
     jwt:
-      # Override in production with NEXTCHAT_JWT_SECRET or an external config.
-      secret: ${NEXTCHAT_JWT_SECRET:change-this-development-secret-to-a-random-32-byte-value}
+      # Production profiles reject this development-only default.
+      secret: ${NEXTCHAT_JWT_SECRET:development-only-secret-change-me-before-production-12345}
       expiration: ${NEXTCHAT_JWT_EXPIRATION:PT15M}
+      refresh-token-expiration: ${NEXTCHAT_JWT_REFRESH_EXPIRATION:P7D}
   seed:
     password: ${NEXTCHAT_SEED_PASSWORD:ChangeMe123!}

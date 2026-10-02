@@ -1,4 +1,4 @@
-package com.quoocscuongwf.nextchat.config;
+package com.quoocscuongwf.nextchat.common.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

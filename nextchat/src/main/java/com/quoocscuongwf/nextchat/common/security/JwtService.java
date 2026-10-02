@@ -1,4 +1,4 @@
-package com.quoocscuongwf.nextchat.security;
+package com.quoocscuongwf.nextchat.common.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -9,19 +9,28 @@ import java.time.Instant;
 import java.util.Date;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 @Service
 public class JwtService {
+    private static final String DEVELOPMENT_SECRET = "development-only-secret-change-me-before-production-12345";
+
     private final SecretKey key;
     private final Duration expiration;
 
     public JwtService(
             @Value("${app.security.jwt.secret}") String secret,
-            @Value("${app.security.jwt.expiration:PT15M}") Duration expiration) {
+            @Value("${app.security.jwt.expiration:PT15M}") Duration expiration,
+            Environment environment) {
         if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("JWT secret must be at least 32 bytes");
+        }
+        if (DEVELOPMENT_SECRET.equals(secret)
+                && !environment.acceptsProfiles(Profiles.of("dev", "test"))) {
+            throw new IllegalStateException("NEXTCHAT_JWT_SECRET must be configured outside dev and test profiles");
         }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expiration = expiration;
@@ -52,5 +61,9 @@ public class JwtService {
 
     private Claims claims(String token) {
         return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+    }
+
+    public Duration getExpiration() {
+        return expiration;
     }
 }
