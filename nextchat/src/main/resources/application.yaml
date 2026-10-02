@@ -6,6 +6,7 @@ spring:
   config:
     import:
       - optional:file:../database.yml
+      - optional:file:.env
   flyway:
     enabled: true
     locations: classpath:db/migration
