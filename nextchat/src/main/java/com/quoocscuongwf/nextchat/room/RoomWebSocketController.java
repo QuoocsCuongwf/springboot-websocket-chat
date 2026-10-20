@@ -30,6 +30,9 @@ public class RoomWebSocketController {
             @DestinationVariable Long roomId,
             @Valid @Payload SendMessageRequest request,
             Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
         Long userId = userRepository.findByUsername(principal.getName())
                 .filter(user -> user.isActive() && !user.isDeleted())
                 .map(User::getId)

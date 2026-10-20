@@ -109,6 +109,38 @@ public class RoomService {
         return RoomDTO.fromEntity(savedGroup, currentUserId);
     }
 
+    @Transactional
+    public MessageDTO sendMessage(
+            Long currentUserId, Long roomId, String content, String messageType, Long replyToMessageId) {
+        Conversation conversation = conversationRepository.findById(roomId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
+        if (!participantRepository.existsByConversationIdAndUserIdAndLeftAtIsNull(roomId, currentUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not a participant in this room");
+        }
+
+        User sender = userRepository.findById(currentUserId)
+                .filter(user -> user.isActive() && !user.isDeleted())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
+        Message replyTo = null;
+        if (replyToMessageId != null) {
+            replyTo = messageRepository.findById(replyToMessageId)
+                    .filter(message -> message.getConversation().getId().equals(roomId) && !message.isDeleted())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST, "Reply message does not belong to this room"));
+        }
+
+        String normalizedType = messageType == null || messageType.isBlank() ? "TEXT" : messageType.toUpperCase(Locale.ROOT);
+        if (!Set.of("TEXT", "IMAGE", "VIDEO", "AUDIO", "FILE", "STICKER", "SYSTEM").contains(normalizedType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported message type");
+        }
+        Message message = new Message(conversation, sender, normalizedType, content.trim());
+        message.setReplyToMessage(replyTo);
+        Message saved = messageRepository.save(message);
+        conversation.setLastMessage(saved);
+        conversationRepository.save(conversation);
+        return MessageDTO.fromEntity(saved);
+    }
+
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public Page<MessageDTO> getRoomMessages(Long currentUserId, Long roomId, int page, int size) {
