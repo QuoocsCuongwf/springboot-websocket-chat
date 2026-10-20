@@ -11,6 +11,7 @@ import com.quoocscuongwf.nextchat.room.ConversationRepository;
 import com.quoocscuongwf.nextchat.room.RoomService;
 import com.quoocscuongwf.nextchat.room.dto.CreateGroupRoomRequest;
 import com.quoocscuongwf.nextchat.room.dto.DirectRoomRequest;
+import com.quoocscuongwf.nextchat.room.dto.MessageDTO;
 import com.quoocscuongwf.nextchat.user.UserRepository;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -451,6 +452,22 @@ public class AuthAndRoomIntegrationTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    @Order(18)
+    void testWebSocketMessageIsPersistedAndUpdatesLastMessage() {
+        MessageDTO result = roomService.sendMessage(
+                user1Id, directRoomId, "Realtime message", "TEXT", null);
+
+        assertThat(result.id()).isNotNull();
+        assertThat(result.roomId()).isEqualTo(directRoomId);
+        assertThat(result.senderId()).isEqualTo(user1Id);
+        assertThat(result.content()).isEqualTo("Realtime message");
+        assertThat(messageRepository.findById(result.id()).orElseThrow().getContent())
+                .isEqualTo("Realtime message");
+        assertThat(conversationRepository.findById(directRoomId).orElseThrow().getLastMessage().getId())
+                .isEqualTo(result.id());
     }
 
     private Long registerUser(String username, String fullName) throws Exception {
