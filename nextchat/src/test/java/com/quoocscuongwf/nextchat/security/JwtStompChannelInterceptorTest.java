@@ -76,7 +76,7 @@ class JwtStompChannelInterceptorTest {
                 .thenReturn(true);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/room.7");
+        accessor.setDestination("/topic/room/7");
         accessor.setUser(new UsernamePasswordAuthenticationToken(userDetails, null));
 
         interceptor.preSend(message(accessor), mock());
@@ -95,7 +95,7 @@ class JwtStompChannelInterceptorTest {
                 .thenReturn(false);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/room.7");
+        accessor.setDestination("/topic/room/7");
         accessor.setUser(new UsernamePasswordAuthenticationToken(userDetails, null));
 
         assertThatThrownBy(() -> interceptor.preSend(message(accessor), mock()))

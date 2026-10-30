@@ -1,7 +1,7 @@
 /**
  * NextChat Frontend Client (Tuần 7)
  * Tích hợp đầy đủ REST API (/api/v1/auth, /api/v1/users, /api/v1/rooms)
- * và kết nối thời gian thực WebSocket/SockJS/STOMP (/ws-chat, /app/chat.sendMessage, /topic/rooms.{roomId})
+ * và kết nối thời gian thực WebSocket/SockJS/STOMP (/ws-chat, /app/room/{roomId}, /topic/room/{roomId})
  */
 
 const STORAGE_KEYS = {
@@ -329,7 +329,7 @@ function updateWsStatus(connected) {
     }
 }
 
-// 5. Subscribe vào kênh phòng chat: /topic/rooms.{roomId}
+// 5. Subscribe vào kênh phòng chat: /topic/room/{roomId}
 function subscribeToRoomTopic(roomId) {
     if (!stompClient || !stompClient.connected) return;
 
@@ -338,7 +338,7 @@ function subscribeToRoomTopic(roomId) {
         currentRoomSubscription = null;
     }
 
-    const destination = `/topic/rooms.${roomId}`;
+    const destination = `/topic/room/${roomId}`;
     logProtocol('STOMP', `SUBSCRIBE ${destination}`, 'JwtStompChannelInterceptor kiểm tra quyền thành viên...');
 
     currentRoomSubscription = stompClient.subscribe(destination, (stompMessage) => {
@@ -358,7 +358,7 @@ function subscribeToRoomTopic(roomId) {
     document.getElementById('activeRoomBadges').classList.add('flex');
 }
 
-// 6. Gửi tin nhắn thời gian thực qua STOMP: /app/chat.sendMessage
+// 6. Gửi tin nhắn thời gian thực qua STOMP: /app/room/{roomId}
 function sendRealtimeMessage(event) {
     event.preventDefault();
     if (!activeRoom) return;
@@ -375,14 +375,14 @@ function sendRealtimeMessage(event) {
     }
 
     const payload = {
-        roomId: activeRoom.id,
-        conversationId: activeRoom.id,
         content: content,
-        messageType: messageType
+        messageType: messageType,
+        replyToMessageId: null
     };
 
-    logProtocol('STOMP', 'SEND /app/chat.sendMessage', JSON.stringify(payload));
-    stompClient.send('/app/chat.sendMessage', {}, JSON.stringify(payload));
+    const destination = `/app/room/${activeRoom.id}`;
+    logProtocol('STOMP', `SEND ${destination}`, JSON.stringify(payload));
+    stompClient.send(destination, {}, JSON.stringify(payload));
     input.value = '';
 }
 

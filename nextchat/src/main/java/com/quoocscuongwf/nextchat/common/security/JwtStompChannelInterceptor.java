@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 
 @Component
 public class JwtStompChannelInterceptor implements ChannelInterceptor {
-    private static final Pattern ROOM_DESTINATION = Pattern.compile("^/topic/room\\.(\\d+)$");
+    private static final Pattern ROOM_DESTINATION = Pattern.compile("^/topic/room/(\\d+)$");
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
     private final UserRepository userRepository;

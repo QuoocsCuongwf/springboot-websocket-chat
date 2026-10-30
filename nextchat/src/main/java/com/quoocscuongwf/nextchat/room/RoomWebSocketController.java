@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
-import org.springframework.messaging.handler.annotation.SendTo;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -18,15 +18,19 @@ import org.springframework.web.server.ResponseStatusException;
 public class RoomWebSocketController {
     private final RoomService roomService;
     private final UserRepository userRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public RoomWebSocketController(RoomService roomService, UserRepository userRepository) {
+    public RoomWebSocketController(
+            RoomService roomService,
+            UserRepository userRepository,
+            SimpMessagingTemplate messagingTemplate) {
         this.roomService = roomService;
         this.userRepository = userRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
-    @MessageMapping("/room.{roomId}")
-    @SendTo("/topic/room.{roomId}")
-    public MessageDTO sendMessage(
+    @MessageMapping("/room/{roomId}")
+    public void sendMessage(
             @DestinationVariable Long roomId,
             @Valid @Payload SendMessageRequest request,
             Principal principal) {
@@ -37,7 +41,8 @@ public class RoomWebSocketController {
                 .filter(user -> user.isActive() && !user.isDeleted())
                 .map(User::getId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
-        return roomService.sendMessage(
+        MessageDTO message = roomService.sendMessage(
                 userId, roomId, request.content(), request.messageType(), request.replyToMessageId());
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
     }
 }
