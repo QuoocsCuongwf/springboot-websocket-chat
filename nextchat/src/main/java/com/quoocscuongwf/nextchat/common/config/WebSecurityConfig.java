@@ -44,10 +44,18 @@ public class WebSecurityConfig {
                 .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
-                    .requestMatchers("/api/v1/auth/**").permitAll()
-                    .requestMatchers("/api/**").authenticated()
-                    .anyRequest().permitAll()
-        )
+                        .requestMatchers(
+                                "/",
+                                "/index.html",
+                                "/app.js",
+                                "/favicon.ico",
+                                "/ws/**",
+                                "/ws-chat/**",
+                                "/api/v1/auth/**"
+                        ).permitAll()
+                        .requestMatchers("/api/**").authenticated()
+                        .anyRequest().permitAll()
+                )
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler)

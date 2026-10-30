@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NextChat — Real-time WebSocket Client (Tuần 7)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SockJS & STOMP.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 h-screen flex flex-col overflow-hidden font-sans">
+
+    <!-- Top Header -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg shadow">N</div>
+            <div>
+                <h1 class="font-bold text-base leading-tight">NextChat Real-time Client</h1>
+                <p class="text-xs text-slate-400">Spring Boot 4.1.1 • WebSocket STOMP • JWT Rotation</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <!-- WebSocket Status Badge -->
+            <div id="wsStatusBadge" class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs">
+                <span id="wsStatusDot" class="w-2 h-2 rounded-full bg-rose-500"></span>
+                <span id="wsStatusText" class="text-slate-300 font-medium">WS: Disconnected</span>
+            </div>
+
+            <!-- Current User Info -->
+            <div id="userHeaderInfo" class="hidden items-center gap-3 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+                <div class="text-right">
+                    <div id="currentUserName" class="text-xs font-semibold text-white"></div>
+                    <div id="currentUserHandle" class="text-[11px] text-indigo-400"></div>
+                </div>
+                <button onclick="refreshAccessToken()" title="Test Refresh Token Rotation (/api/v1/auth/refresh)"
+                    class="text-xs bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded transition">
+                    ↻ Xoay vòng Token
+                </button>
+                <button onclick="logout()" class="text-xs bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded transition">
+                    Đăng xuất
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- AUTHENTICATION VIEW (Login / Register) -->
+        <div id="authView" class="absolute inset-0 bg-slate-950 z-20 flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
+                <div class="flex border-b border-slate-800 mb-5">
+                    <button id="tabLoginBtn" onclick="switchAuthTab('login')"
+                        class="flex-1 pb-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400">
+                        Đăng nhập
+                    </button>
+                    <button id="tabRegisterBtn" onclick="switchAuthTab('register')"
+                        class="flex-1 pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200">
+                        Đăng ký tài khoản
+                    </button>
+                </div>
+
+                <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-xs font-medium"></div>
+
+                <!-- Login Form -->
+                <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Tên đăng nhập (Username)</label>
+                        <input id="loginUsername" type="text" required placeholder="Nhập username..."
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Mật khẩu (Password)</label>
+                        <input id="loginPassword" type="password" required placeholder="••••••••"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <button type="submit"
+                        class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg text-sm transition shadow">
+                        Đăng nhập & Kết nối STOMP
+                    </button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="registerForm" onsubmit="handleRegister(event)" class="hidden space-y-3.5">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Username (3 - 50 ký tự)</label>
+                        <input id="regUsername" type="text" minlength="3" maxlength="50" required placeholder="예: phutai254"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Email</label>
+                        <input id="regEmail" type="email" required placeholder="phutai@example.com"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Họ và tên (Full Name)</label>
+                        <input id="regFullName" type="text" required placeholder="Nguyễn Phú Tài"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Mật khẩu (8 - 128 ký tự)</label>
+                        <input id="regPassword" type="password" minlength="8" maxlength="128" required placeholder="Tối thiểu 8 ký tự"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <button type="submit"
+                        class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg text-sm transition shadow">
+                        Tạo tài khoản mới
+                    </button>
+                </form>
+
+                <div class="mt-5 pt-4 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                    <span>Backend URL:</span>
+                    <input id="apiBaseUrlInput" type="text" value="http://localhost:8080"
+                        class="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-slate-200 w-48 text-right">
+                </div>
+            </div>
+        </div>
+
+        <!-- LEFT SIDEBAR: Rooms & Search Users -->
+        <aside class="w-80 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
+            <!-- User Search (Create Direct Room) -->
+            <div class="p-3.5 border-b border-slate-800">
+                <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                    Tìm người dùng / Tạo chat 1-1
+                </label>
+                <div class="flex gap-1.5">
+                    <input id="searchUserInput" type="text" placeholder="Nhập tên hoặc username..."
+                        onkeydown="if(event.key==='Enter') searchUsers()"
+                        class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    <button onclick="searchUsers()"
+                        class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                        Tìm
+                    </button>
+                </div>
+                <!-- Search Results Dropdown -->
+                <div id="searchResultsBox" class="hidden mt-2 bg-slate-800 border border-slate-700 rounded-lg max-h-44 overflow-y-auto divide-y divide-slate-700/60"></div>
+            </div>
+
+            <!-- Action Bar: Create Group & Reload Rooms -->
+            <div class="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-300">Danh sách phòng chat</span>
+                <div class="flex gap-1.5">
+                    <button onclick="toggleGroupModal(true)"
+                        class="text-[11px] bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 px-2 py-1 rounded transition">
+                        + Tạo nhóm
+                    </button>
+                    <button onclick="loadRooms()" title="Làm mới danh sách"
+                        class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700 transition">
+                        ↻
+                    </button>
+                </div>
+            </div>
+
+            <!-- Room List -->
+            <div id="roomListContainer" class="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+                <div class="p-6 text-center text-xs text-slate-500">Chưa có phòng chat nào.</div>
+            </div>
+        </aside>
+
+        <!-- CENTER PANEL: Active Chat Room -->
+        <main class="flex-1 flex flex-col bg-slate-950 overflow-hidden">
+            <!-- Active Room Header -->
+            <div id="chatRoomHeader" class="h-14 bg-slate-900/70 border-b border-slate-800 px-5 flex items-center justify-between shrink-0">
+                <div>
+                    <h2 id="activeRoomTitle" class="text-sm font-bold text-slate-200">Chưa chọn phòng chat</h2>
+                    <p id="activeRoomMeta" class="text-[11px] text-slate-400">Hãy chọn một phòng bên trái hoặc tìm người dùng để bắt đầu trò chuyện</p>
+                </div>
+                <div id="activeRoomBadges" class="hidden items-center gap-2">
+                    <span id="activeRoomTopicBadge" class="text-[11px] font-mono bg-slate-800 text-emerald-400 border border-slate-700 px-2.5 py-1 rounded"></span>
+                </div>
+            </div>
+
+            <!-- Messages Stream -->
+            <div id="messagesContainer" class="flex-1 overflow-y-auto p-5 space-y-3">
+                <div class="h-full flex items-center justify-center text-slate-500 text-xs">
+                    Chọn một phòng chat để tải lịch sử tin nhắn (PL/pgSQL get_room_messages) và kết nối kênh STOMP.
+                </div>
+            </div>
+
+            <!-- Message Input Box -->
+            <form id="messageForm" onsubmit="sendRealtimeMessage(event)" class="p-3.5 bg-slate-900 border-t border-slate-800 flex items-center gap-2.5 shrink-0">
+                <select id="messageTypeSelect" class="bg-slate-800 border border-slate-700 text-xs text-slate-300 rounded-lg px-2.5 py-2.5 focus:outline-none">
+                    <option value="TEXT">TEXT</option>
+                </select>
+                <input id="messageInput" type="text" disabled placeholder="Nhập tin nhắn và nhấn Enter để gửi qua /app/chat.sendMessage..."
+                    class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50">
+                <button id="sendMessageBtn" type="submit" disabled
+                    class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-semibold px-5 py-2.5 rounded-lg text-sm transition">
+                    Gửi
+                </button>
+            </form>
+        </main>
+
+        <!-- RIGHT SIDEBAR: JWT & STOMP Inspector (For Demo & Defense) -->
+        <aside class="w-80 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0">
+            <div class="p-3.5 border-b border-slate-800">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Trạng thái JWT Token (LocalStorage)</h3>
+                <div class="space-y-2 text-[11px]">
+                    <div class="bg-slate-950 p-2 rounded border border-slate-800">
+                        <div class="text-slate-400 flex justify-between">
+                            <span>Access Token:</span>
+                            <span id="accessTokenExp" class="text-emerald-400 font-mono"></span>
+                        </div>
+                        <div id="accessTokenPreview" class="font-mono text-slate-300 truncate mt-0.5">Chưa có</div>
+                    </div>
+                    <div class="bg-slate-950 p-2 rounded border border-slate-800">
+                        <div class="text-slate-400">Refresh Token (SHA-256 Rotation):</div>
+                        <div id="refreshTokenPreview" class="font-mono text-slate-300 truncate mt-0.5">Chưa có</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STOMP & REST Protocol Log -->
+            <div class="px-3.5 py-2 border-b border-slate-800 flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Nhật ký STOMP / REST</span>
+                <button onclick="clearLogs()" class="text-[11px] text-slate-400 hover:text-white">Xóa log</button>
+            </div>
+            <div id="protocolLogContainer" class="flex-1 overflow-y-auto p-3 space-y-2 font-mono text-[11px] bg-slate-950/60"></div>
+        </aside>
+    </div>
+
+    <!-- MODAL: Create Group Room -->
+    <div id="groupModal" class="hidden fixed inset-0 bg-black/70 z-30 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-xl">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                <h3 class="font-bold text-sm text-white">Tạo phòng chat nhóm (POST /api/v1/rooms/group)</h3>
+                <button onclick="toggleGroupModal(false)" class="text-slate-400 hover:text-white text-lg">&times;</button>
+            </div>
+            <form onsubmit="createGroupRoom(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Tên nhóm chat</label>
+                    <input id="groupNameInput" type="text" required placeholder="VD: Nhóm Đồ Án 24"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Danh sách User ID thành viên (cách nhau bằng dấu phẩy)</label>
+                    <input id="groupMemberIdsInput" type="text" required placeholder="VD: 2, 3"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+                    <p class="text-[11px] text-slate-500 mt-1">Mẹo: Dùng ô Tìm kiếm người dùng bên trái để xem ID của từng tài khoản.</p>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="toggleGroupModal(false)"
+                        class="px-4 py-2 rounded-lg text-xs bg-slate-800 text-slate-300 hover:bg-slate-700">Hủy</button>
+                    <button type="submit"
+                        class="px-4 py-2 rounded-lg text-xs bg-indigo-600 text-white font-semibold hover:bg-indigo-500">Tạo nhóm</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

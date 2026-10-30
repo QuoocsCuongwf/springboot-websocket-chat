@@ -4,18 +4,18 @@ services:
     container_name: nextchat-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-messenger_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-nextchat}
+      POSTGRES_USER: ${POSTGRES_USER:-nextchat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextchat123}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - nextchat-postgres-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextchat} -d ${POSTGRES_DB:-nextchat}"]
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
 
 volumes:
-  nextchat-postgres-data:
+  postgres_data:
