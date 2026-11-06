@@ -103,6 +103,18 @@ class JwtStompChannelInterceptorTest {
                 .hasMessage("You are not a participant in this room");
     }
 
+    @Test
+    void subsequentFrameRestoresAuthenticationFromSession() {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setSessionAttributes(new java.util.HashMap<>());
+        accessor.getSessionAttributes().put("stompUsername", "alice");
+
+        Message<?> result = interceptor.preSend(message(accessor), mock());
+
+        assertThat(StompHeaderAccessor.wrap(result).getUser()).isNotNull();
+        assertThat(StompHeaderAccessor.wrap(result).getUser().getName()).isEqualTo("alice");
+    }
+
     private Message<byte[]> message(StompHeaderAccessor accessor) {
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());

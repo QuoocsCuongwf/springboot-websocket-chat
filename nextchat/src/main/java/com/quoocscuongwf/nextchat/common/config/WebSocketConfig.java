@@ -17,7 +17,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     public WebSocketConfig(
             JwtStompChannelInterceptor jwtStompChannelInterceptor,
-            @Value("${app.websocket.allowed-origins:http://localhost:3000,http://localhost:5173}")
+            @Value("${app.websocket.allowed-origins:http://localhost:8080,http://127.0.0.1:8080,http://localhost:3000,http://localhost:5173}")
             String[] allowedOrigins) {
         this.jwtStompChannelInterceptor = jwtStompChannelInterceptor;
         this.allowedOrigins = allowedOrigins;
