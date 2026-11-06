@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 
 @Component
 public class JwtStompChannelInterceptor implements ChannelInterceptor {
-    private static final Pattern ROOM_DESTINATION = Pattern.compile("^/topic/room\\.(\\d+)$");
+    private static final Pattern ROOM_DESTINATION = Pattern.compile("^/topic/room/(\\d+)$");
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
     private final UserRepository userRepository;
@@ -58,13 +58,20 @@ public class JwtStompChannelInterceptor implements ChannelInterceptor {
                 Authentication authentication = new UsernamePasswordAuthenticationToken(
                         user, null, user.getAuthorities());
                 accessor.setUser(authentication);
+                if (accessor.getSessionAttributes() != null) {
+                    accessor.getSessionAttributes().put("stompUsername", username);
+                }
             } catch (JwtException | IllegalArgumentException ex) {
                 throw new IllegalArgumentException("A valid JWT is required to connect", ex);
             }
-        } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+        } else {
+            restoreAuthentication(accessor);
+        }
+
+        if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             Matcher matcher = ROOM_DESTINATION.matcher(
                     accessor.getDestination() == null ? "" : accessor.getDestination());
-            if (matcher.matches() && !isRoomMember(matcher.group(1), accessor.getUser())) {
+            if (matcher.matches() && !isRoomMember(matcher.group(1), accessor)) {
                 throw new IllegalArgumentException("You are not a participant in this room");
             }
         }
@@ -72,11 +79,29 @@ public class JwtStompChannelInterceptor implements ChannelInterceptor {
         return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }
 
-    private boolean isRoomMember(String roomId, java.security.Principal principal) {
-        if (!(principal instanceof Authentication authentication)) {
+    private void restoreAuthentication(StompHeaderAccessor accessor) {
+        if (accessor.getUser() != null || accessor.getSessionAttributes() == null) {
+            return;
+        }
+        String username = (String) accessor.getSessionAttributes().get("stompUsername");
+        if (username == null) {
+            return;
+        }
+        UserDetails user = userDetailsService.loadUserByUsername(username);
+        accessor.setUser(new UsernamePasswordAuthenticationToken(
+                user, null, user.getAuthorities()));
+    }
+
+    private boolean isRoomMember(String roomId, StompHeaderAccessor accessor) {
+        String username = accessor.getUser() != null
+                ? accessor.getUser().getName()
+                : accessor.getSessionAttributes() != null
+                        ? (String) accessor.getSessionAttributes().get("stompUsername")
+                        : null;
+        if (username == null) {
             return false;
         }
-        return userRepository.findByUsername(authentication.getName())
+        return userRepository.findByUsername(username)
                 .filter(user -> user.isActive() && !user.isDeleted())
                 .map(user -> participantRepository.existsByConversationIdAndUserIdAndLeftAtIsNull(
                         Long.parseLong(roomId), user.getId()))

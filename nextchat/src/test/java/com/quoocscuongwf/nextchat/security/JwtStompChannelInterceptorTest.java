@@ -76,7 +76,7 @@ class JwtStompChannelInterceptorTest {
                 .thenReturn(true);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/room.7");
+        accessor.setDestination("/topic/room/7");
         accessor.setUser(new UsernamePasswordAuthenticationToken(userDetails, null));
 
         interceptor.preSend(message(accessor), mock());
@@ -95,12 +95,24 @@ class JwtStompChannelInterceptorTest {
                 .thenReturn(false);
 
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
-        accessor.setDestination("/topic/room.7");
+        accessor.setDestination("/topic/room/7");
         accessor.setUser(new UsernamePasswordAuthenticationToken(userDetails, null));
 
         assertThatThrownBy(() -> interceptor.preSend(message(accessor), mock()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("You are not a participant in this room");
+    }
+
+    @Test
+    void subsequentFrameRestoresAuthenticationFromSession() {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setSessionAttributes(new java.util.HashMap<>());
+        accessor.getSessionAttributes().put("stompUsername", "alice");
+
+        Message<?> result = interceptor.preSend(message(accessor), mock());
+
+        assertThat(StompHeaderAccessor.wrap(result).getUser()).isNotNull();
+        assertThat(StompHeaderAccessor.wrap(result).getUser().getName()).isEqualTo("alice");
     }
 
     private Message<byte[]> message(StompHeaderAccessor accessor) {
