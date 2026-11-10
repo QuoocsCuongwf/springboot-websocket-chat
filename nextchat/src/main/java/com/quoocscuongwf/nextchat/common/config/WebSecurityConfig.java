@@ -51,7 +51,8 @@ public class WebSecurityConfig {
                                 "/favicon.ico",
                                 "/ws/**",
                                 "/ws-chat/**",
-                                "/api/v1/auth/**"
+                                "/api/v1/auth/**",
+                                "/api/v1/users/avatars/**"
                         ).permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()

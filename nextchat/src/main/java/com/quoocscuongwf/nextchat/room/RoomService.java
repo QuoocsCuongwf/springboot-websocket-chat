@@ -138,10 +138,28 @@ public class RoomService {
         Message saved = messageRepository.save(message);
         conversation.setLastMessage(saved);
         conversationRepository.save(conversation);
+        participantRepository.findByConversationIdAndUserId(roomId, currentUserId)
+                .ifPresent(cp -> {
+                    cp.setLastReadMessageId(saved.getId());
+                    participantRepository.save(cp);
+                });
         return MessageDTO.fromEntity(saved);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
+    public void markRoomAsRead(Long currentUserId, Long roomId) {
+        Conversation conversation = conversationRepository.findById(roomId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
+        ConversationParticipant cp = participantRepository.findByConversationIdAndUserId(roomId, currentUserId)
+                .filter(p -> p.getLeftAt() == null)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not a participant in this room"));
+        if (conversation.getLastMessage() != null) {
+            cp.setLastReadMessageId(conversation.getLastMessage().getId());
+            participantRepository.save(cp);
+        }
+    }
+
+    @Transactional
     @SuppressWarnings("unchecked")
     public Page<MessageDTO> getRoomMessages(Long currentUserId, Long roomId, int page, int size) {
         if (!conversationRepository.existsById(roomId)) {
@@ -210,6 +228,17 @@ public class RoomService {
                         createdAt,
                         updatedAt
                 ));
+        }
+
+        if (pageNum == 0 && !dtoList.isEmpty()) {
+            Long newestMessageId = dtoList.get(0).id();
+            participantRepository.findByConversationIdAndUserId(roomId, currentUserId)
+                    .ifPresent(cp -> {
+                        if (cp.getLastReadMessageId() == null || newestMessageId > cp.getLastReadMessageId()) {
+                            cp.setLastReadMessageId(newestMessageId);
+                            participantRepository.save(cp);
+                        }
+                    });
         }
 
         return new PageImpl<>(dtoList, PageRequest.of(pageNum, pageSize), totalCount);

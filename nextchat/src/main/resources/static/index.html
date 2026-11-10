@@ -1,260 +1,658 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" data-theme="coffee">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NextChat — Real-time WebSocket Client (Tuần 7)</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Chatty — Real-time Chat Application</title>
+    <!-- DaisyUI v4 + Tailwind CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- SockJS & STOMP.js CDN -->
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SockJS & STOMP.js -->
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
     <style>
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(150, 150, 150, 0.3); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(150, 150, 150, 0.5); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 h-screen flex flex-col overflow-hidden font-sans">
+<body class="bg-base-200 text-base-content min-h-screen font-sans antialiased selection:bg-primary selection:text-primary-content">
 
-    <!-- Top Header -->
-    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg shadow">N</div>
-            <div>
-                <h1 class="font-bold text-base leading-tight">NextChat Real-time Client</h1>
-                <p class="text-xs text-slate-400">Spring Boot 4.1.1 • WebSocket STOMP • JWT Rotation</p>
-            </div>
-        </div>
-
-        <div class="flex items-center gap-4">
-            <!-- WebSocket Status Badge -->
-            <div id="wsStatusBadge" class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs">
-                <span id="wsStatusDot" class="w-2 h-2 rounded-full bg-rose-500"></span>
-                <span id="wsStatusText" class="text-slate-300 font-medium">WS: Disconnected</span>
-            </div>
-
-            <!-- Current User Info -->
-            <div id="userHeaderInfo" class="hidden items-center gap-3 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
-                <div class="text-right">
-                    <div id="currentUserName" class="text-xs font-semibold text-white"></div>
-                    <div id="currentUserHandle" class="text-[11px] text-indigo-400"></div>
+    <!-- ===================================================================== -->
+    <!-- TOP NAVBAR (Replica of Navbar.jsx in burakorkmez/fullstack-chat-app)  -->
+    <!-- ===================================================================== -->
+    <header class="bg-base-100 border-b border-base-300 fixed w-full top-0 z-40 backdrop-blur-lg bg-base-100/80">
+        <div class="container mx-auto px-4 h-16">
+            <div class="flex items-center justify-between h-full">
+                <!-- Brand Logo -->
+                <div class="flex items-center gap-8">
+                    <button onclick="navigateTo('home')" class="flex items-center gap-2.5 hover:opacity-80 transition-all">
+                        <div class="size-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <i data-lucide="message-square" class="w-5 h-5 text-primary"></i>
+                        </div>
+                        <h1 class="text-lg font-bold tracking-tight">Chatty</h1>
+                    </button>
                 </div>
-                <button onclick="refreshAccessToken()" title="Test Refresh Token Rotation (/api/v1/auth/refresh)"
-                    class="text-xs bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded transition">
-                    ↻ Xoay vòng Token
-                </button>
-                <button onclick="logout()" class="text-xs bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 px-2.5 py-1 rounded transition">
-                    Đăng xuất
-                </button>
+
+                <!-- Right Navigation Actions -->
+                <div class="flex items-center gap-2">
+                    <!-- Real-time WebSocket Status Pill (shown when logged in) -->
+                    <div id="navWsBadge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-base-200 border border-base-300 text-xs mr-1" title="Trạng thái kết nối WebSocket STOMP">
+                        <span id="wsStatusDot" class="size-2 rounded-full bg-error"></span>
+                        <span id="wsStatusText" class="text-[11px] font-medium opacity-75">Offline</span>
+                    </div>
+
+                    <!-- Settings Button (Always visible, just like Chatty) -->
+                    <button onclick="navigateTo('settings')" id="navSettingsBtn" class="btn btn-sm gap-2 transition-colors">
+                        <i data-lucide="settings" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">Settings</span>
+                    </button>
+
+                    <!-- Authenticated User Buttons (Profile & Logout) -->
+                    <div id="navAuthActions" class="hidden items-center gap-2">
+                        <button onclick="navigateTo('profile')" id="navProfileBtn" class="btn btn-sm gap-2">
+                            <i data-lucide="user" class="size-5"></i>
+                            <span class="hidden sm:inline">Profile</span>
+                        </button>
+
+                        <button onclick="logout()" class="btn btn-sm btn-ghost gap-2 items-center" title="Đăng xuất">
+                            <i data-lucide="log-out" class="size-5"></i>
+                            <span class="hidden sm:inline">Logout</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
 
-    <!-- Main Container -->
-    <div class="flex-1 flex overflow-hidden relative">
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="toast toast-top toast-center z-50 mt-14"></div>
 
-        <!-- AUTHENTICATION VIEW (Login / Register) -->
-        <div id="authView" class="absolute inset-0 bg-slate-950 z-20 flex items-center justify-center p-4">
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
-                <div class="flex border-b border-slate-800 mb-5">
-                    <button id="tabLoginBtn" onclick="switchAuthTab('login')"
-                        class="flex-1 pb-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400">
-                        Đăng nhập
-                    </button>
-                    <button id="tabRegisterBtn" onclick="switchAuthTab('register')"
-                        class="flex-1 pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200">
-                        Đăng ký tài khoản
-                    </button>
+    <!-- ===================================================================== -->
+    <!-- VIEW 1: AUTHENTICATION PAGE (LoginPage.jsx / SignUpPage.jsx + Grid)   -->
+    <!-- ===================================================================== -->
+    <section id="authView" class="min-h-screen grid lg:grid-cols-2 pt-16">
+        <!-- Left Side: Form -->
+        <div class="flex flex-col justify-center items-center p-6 sm:p-12 bg-base-100">
+            <div class="w-full max-w-md space-y-6">
+                <!-- Logo & Heading -->
+                <div class="text-center mb-6">
+                    <div class="flex flex-col items-center gap-2 group">
+                        <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                            <i data-lucide="message-square" class="w-6 h-6 text-primary"></i>
+                        </div>
+                        <h1 id="authHeading" class="text-2xl font-bold mt-2">Welcome Back</h1>
+                        <p id="authSubheading" class="text-base-content/60 text-sm">Sign in to your account</p>
+                    </div>
                 </div>
 
-                <div id="authAlert" class="hidden mb-4 p-3 rounded-lg text-xs font-medium"></div>
+                <!-- Alert Banner -->
+                <div id="authAlert" class="hidden alert text-sm py-2.5"></div>
 
-                <!-- Login Form -->
-                <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-4">
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Tên đăng nhập (Username)</label>
-                        <input id="loginUsername" type="text" required placeholder="Nhập username..."
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                <!-- LOGIN FORM -->
+                <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-5">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">Username</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i data-lucide="user" class="h-5 w-5 text-base-content/40"></i>
+                            </div>
+                            <input id="loginUsername" type="text" required
+                                class="input input-bordered w-full pl-10"
+                                placeholder="you_username" />
+                        </div>
                     </div>
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Mật khẩu (Password)</label>
-                        <input id="loginPassword" type="password" required placeholder="••••••••"
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">Password</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i data-lucide="lock" class="h-5 w-5 text-base-content/40"></i>
+                            </div>
+                            <input id="loginPassword" type="password" required
+                                class="input input-bordered w-full pl-10 pr-10"
+                                placeholder="••••••••" />
+                            <button type="button" onclick="togglePasswordVisibility('loginPassword', 'loginEyeIcon')"
+                                class="absolute inset-y-0 right-0 pr-3 flex items-center text-base-content/40 hover:text-base-content">
+                                <i id="loginEyeIcon" data-lucide="eye" class="h-5 w-5"></i>
+                            </button>
+                        </div>
                     </div>
-                    <button type="submit"
-                        class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg text-sm transition shadow">
-                        Đăng nhập & Kết nối STOMP
+
+                    <button type="submit" id="loginSubmitBtn" class="btn btn-primary w-full">
+                        Sign in
+                    </button>
+
+                    <!-- Quick Demo Accounts for instant testing -->
+                    <div class="pt-2 border-t border-base-300">
+                        <p class="text-xs text-center text-base-content/50 mb-2">Quick Demo Login (1-Click)</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" onclick="quickLogin('alice', 'ChangeMe123!')" class="btn btn-xs btn-outline gap-1">
+                                <span class="size-2 rounded-full bg-emerald-500"></span> Alice (@alice)
+                            </button>
+                            <button type="button" onclick="quickLogin('bob', 'ChangeMe123!')" class="btn btn-xs btn-outline gap-1">
+                                <span class="size-2 rounded-full bg-sky-500"></span> Bob (@bob)
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- SIGN UP FORM -->
+                <form id="registerForm" onsubmit="handleRegister(event)" class="hidden space-y-4">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">Full Name</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i data-lucide="badge-check" class="h-5 w-5 text-base-content/40"></i>
+                            </div>
+                            <input id="regFullName" type="text" required
+                                class="input input-bordered w-full pl-10"
+                                placeholder="John Doe" />
+                        </div>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">Username</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i data-lucide="user" class="h-5 w-5 text-base-content/40"></i>
+                            </div>
+                            <input id="regUsername" type="text" minlength="3" maxlength="50" required
+                                class="input input-bordered w-full pl-10"
+                                placeholder="johndoe" />
+                        </div>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">Email</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i data-lucide="mail" class="h-5 w-5 text-base-content/40"></i>
+                            </div>
+                            <input id="regEmail" type="email" required
+                                class="input input-bordered w-full pl-10"
+                                placeholder="you@example.com" />
+                        </div>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">Password</span>
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i data-lucide="lock" class="h-5 w-5 text-base-content/40"></i>
+                            </div>
+                            <input id="regPassword" type="password" minlength="8" maxlength="128" required
+                                class="input input-bordered w-full pl-10 pr-10"
+                                placeholder="•••••••• (min 8 chars)" />
+                            <button type="button" onclick="togglePasswordVisibility('regPassword', 'regEyeIcon')"
+                                class="absolute inset-y-0 right-0 pr-3 flex items-center text-base-content/40 hover:text-base-content">
+                                <i id="regEyeIcon" data-lucide="eye" class="h-5 w-5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="regSubmitBtn" class="btn btn-primary w-full">
+                        Create Account
                     </button>
                 </form>
 
-                <!-- Register Form -->
-                <form id="registerForm" onsubmit="handleRegister(event)" class="hidden space-y-3.5">
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Username (3 - 50 ký tự)</label>
-                        <input id="regUsername" type="text" minlength="3" maxlength="50" required placeholder="예: phutai254"
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Email</label>
-                        <input id="regEmail" type="email" required placeholder="phutai@example.com"
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Họ và tên (Full Name)</label>
-                        <input id="regFullName" type="text" required placeholder="Nguyễn Phú Tài"
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1">Mật khẩu (8 - 128 ký tự)</label>
-                        <input id="regPassword" type="password" minlength="8" maxlength="128" required placeholder="Tối thiểu 8 ký tự"
-                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                    </div>
-                    <button type="submit"
-                        class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg text-sm transition shadow">
-                        Tạo tài khoản mới
-                    </button>
-                </form>
-
-                <div class="mt-5 pt-4 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-                    <span>Backend URL:</span>
-                    <input id="apiBaseUrlInput" type="text" value="http://localhost:8080"
-                        class="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-slate-200 w-48 text-right">
+                <!-- Switch Login / Register Link -->
+                <div class="text-center">
+                    <p id="authSwitchText" class="text-base-content/60 text-sm">
+                        Don't have an account?
+                        <button type="button" onclick="switchAuthTab('register')" class="link link-primary font-medium ml-1">
+                            Create account
+                        </button>
+                    </p>
                 </div>
             </div>
         </div>
 
-        <!-- LEFT SIDEBAR: Rooms & Search Users -->
-        <aside class="w-80 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
-            <!-- User Search (Create Direct Room) -->
-            <div class="p-3.5 border-b border-slate-800">
-                <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    Tìm người dùng / Tạo chat 1-1
-                </label>
-                <div class="flex gap-1.5">
-                    <input id="searchUserInput" type="text" placeholder="Nhập tên hoặc username..."
-                        onkeydown="if(event.key==='Enter') searchUsers()"
-                        class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
-                    <button onclick="searchUsers()"
-                        class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
-                        Tìm
-                    </button>
+        <!-- Right Side: AuthImagePattern.jsx (3x3 Animated Grid) -->
+        <div class="hidden lg:flex items-center justify-center bg-base-200 p-12">
+            <div class="max-w-md text-center">
+                <div class="grid grid-cols-3 gap-3 mb-8">
+                    <div class="aspect-square rounded-2xl bg-primary/10 animate-pulse"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10 animate-pulse"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10 animate-pulse"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10 animate-pulse"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10"></div>
+                    <div class="aspect-square rounded-2xl bg-primary/10 animate-pulse"></div>
                 </div>
-                <!-- Search Results Dropdown -->
-                <div id="searchResultsBox" class="hidden mt-2 bg-slate-800 border border-slate-700 rounded-lg max-h-44 overflow-y-auto divide-y divide-slate-700/60"></div>
+                <h2 id="patternTitle" class="text-2xl font-bold mb-4">Welcome back!</h2>
+                <p id="patternSubtitle" class="text-base-content/60">
+                    Sign in to continue your conversations and catch up with your messages in real-time.
+                </p>
             </div>
+        </div>
+    </section>
 
-            <!-- Action Bar: Create Group & Reload Rooms -->
-            <div class="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
-                <span class="text-xs font-semibold text-slate-300">Danh sách phòng chat</span>
-                <div class="flex gap-1.5">
-                    <button onclick="toggleGroupModal(true)"
-                        class="text-[11px] bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 px-2 py-1 rounded transition">
-                        + Tạo nhóm
-                    </button>
-                    <button onclick="loadRooms()" title="Làm mới danh sách"
-                        class="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700 transition">
-                        ↻
-                    </button>
-                </div>
-            </div>
+    <!-- ===================================================================== -->
+    <!-- VIEW 2: HOME PAGE (HomePage.jsx: Sidebar + NoChatSelected / Chat)     -->
+    <!-- ===================================================================== -->
+    <section id="homeView" class="hidden h-screen bg-base-200">
+        <div class="flex items-center justify-center pt-20 px-4">
+            <div class="bg-base-100 rounded-lg shadow-xl w-full max-w-6xl h-[calc(100vh-6.5rem)] border border-base-300">
+                <div class="flex h-full rounded-lg overflow-hidden">
 
-            <!-- Room List -->
-            <div id="roomListContainer" class="flex-1 overflow-y-auto divide-y divide-slate-800/60">
-                <div class="p-6 text-center text-xs text-slate-500">Chưa có phòng chat nào.</div>
-            </div>
-        </aside>
+                    <!-- SIDEBAR (Sidebar.jsx replica) -->
+                    <aside class="h-full w-20 lg:w-80 border-r border-base-300 flex flex-col transition-all duration-200 shrink-0">
+                        <!-- Sidebar Header -->
+                        <div class="border-b border-base-300 w-full p-4 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="users" class="size-6"></i>
+                                    <span class="font-medium hidden lg:block">Contacts & Chats</span>
+                                </div>
+                                <div class="hidden lg:flex items-center gap-1">
+                                    <button onclick="openNewChatModal()" class="btn btn-xs btn-ghost gap-1" title="Tìm người dùng / Chat 1-1">
+                                        <i data-lucide="user-plus" class="size-4"></i>
+                                    </button>
+                                    <button onclick="toggleGroupModal(true)" class="btn btn-xs btn-primary gap-1" title="Tạo nhóm chat mới">
+                                        <i data-lucide="plus" class="size-3.5"></i>
+                                        <span>Group</span>
+                                    </button>
+                                </div>
+                            </div>
 
-        <!-- CENTER PANEL: Active Chat Room -->
-        <main class="flex-1 flex flex-col bg-slate-950 overflow-hidden">
-            <!-- Active Room Header -->
-            <div id="chatRoomHeader" class="h-14 bg-slate-900/70 border-b border-slate-800 px-5 flex items-center justify-between shrink-0">
-                <div>
-                    <h2 id="activeRoomTitle" class="text-sm font-bold text-slate-200">Chưa chọn phòng chat</h2>
-                    <p id="activeRoomMeta" class="text-[11px] text-slate-400">Hãy chọn một phòng bên trái hoặc tìm người dùng để bắt đầu trò chuyện</p>
-                </div>
-                <div id="activeRoomBadges" class="hidden items-center gap-2">
-                    <span id="activeRoomTopicBadge" class="text-[11px] font-mono bg-slate-800 text-emerald-400 border border-slate-700 px-2.5 py-1 rounded"></span>
-                </div>
-            </div>
+                            <!-- Search Filter Bar (Desktop) -->
+                            <div class="hidden lg:block relative">
+                                <i data-lucide="search" class="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40"></i>
+                                <input id="sidebarSearchInput" type="text" oninput="handleSidebarSearch(this.value)"
+                                    placeholder="Search chats or users..."
+                                    class="input input-bordered input-sm w-full pl-9 rounded-lg text-xs" />
+                            </div>
 
-            <!-- Messages Stream -->
-            <div id="messagesContainer" class="flex-1 overflow-y-auto p-5 space-y-3">
-                <div class="h-full flex items-center justify-center text-slate-500 text-xs">
-                    Chọn một phòng chat để tải lịch sử tin nhắn (PL/pgSQL get_room_messages) và kết nối kênh STOMP.
-                </div>
-            </div>
-
-            <!-- Message Input Box -->
-            <form id="messageForm" onsubmit="sendRealtimeMessage(event)" class="p-3.5 bg-slate-900 border-t border-slate-800 flex items-center gap-2.5 shrink-0">
-                <select id="messageTypeSelect" class="bg-slate-800 border border-slate-700 text-xs text-slate-300 rounded-lg px-2.5 py-2.5 focus:outline-none">
-                    <option value="TEXT">TEXT</option>
-                </select>
-                <input id="messageInput" type="text" disabled placeholder="Nhập tin nhắn và nhấn Enter để gửi qua /app/room/{roomId}..."
-                    class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50">
-                <button id="sendMessageBtn" type="submit" disabled
-                    class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-semibold px-5 py-2.5 rounded-lg text-sm transition">
-                    Gửi
-                </button>
-            </form>
-        </main>
-
-        <!-- RIGHT SIDEBAR: JWT & STOMP Inspector (For Demo & Defense) -->
-        <aside class="w-80 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0">
-            <div class="p-3.5 border-b border-slate-800">
-                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Trạng thái JWT Token (LocalStorage)</h3>
-                <div class="space-y-2 text-[11px]">
-                    <div class="bg-slate-950 p-2 rounded border border-slate-800">
-                        <div class="text-slate-400 flex justify-between">
-                            <span>Access Token:</span>
-                            <span id="accessTokenExp" class="text-emerald-400 font-mono"></span>
+                            <!-- Filter Tabs (All / Direct / Groups / People) -->
+                            <div class="hidden lg:grid grid-cols-4 gap-1 bg-base-200 p-1 rounded-lg text-xs">
+                                <button onclick="setSidebarFilter('all')" id="filterBtn-all" class="py-1 rounded-md font-medium bg-base-100 shadow-sm">All</button>
+                                <button onclick="setSidebarFilter('direct')" id="filterBtn-direct" class="py-1 rounded-md opacity-70 hover:opacity-100">Direct</button>
+                                <button onclick="setSidebarFilter('group')" id="filterBtn-group" class="py-1 rounded-md opacity-70 hover:opacity-100">Groups</button>
+                                <button onclick="setSidebarFilter('contacts')" id="filterBtn-contacts" class="py-1 rounded-md opacity-70 hover:opacity-100">People</button>
+                            </div>
                         </div>
-                        <div id="accessTokenPreview" class="font-mono text-slate-300 truncate mt-0.5">Chưa có</div>
+
+                        <!-- Sidebar List Container -->
+                        <div id="roomListContainer" class="overflow-y-auto w-full py-2 flex-1 divide-y divide-base-200/50">
+                            <!-- Dynamically populated by app.js -->
+                        </div>
+                    </aside>
+
+                    <!-- NO CHAT SELECTED PLACEHOLDER (NoChatSelected.jsx replica) -->
+                    <div id="noChatSelected" class="w-full flex flex-1 flex-col items-center justify-center p-16 bg-base-100/50">
+                        <div class="max-w-md text-center space-y-6">
+                            <!-- Bouncing Icon Display -->
+                            <div class="flex justify-center gap-4 mb-4">
+                                <div class="relative">
+                                    <div class="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-bounce">
+                                        <i data-lucide="message-square" class="w-8 h-8 text-primary"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Welcome Text -->
+                            <h2 class="text-2xl font-bold">Welcome to Chatty!</h2>
+                            <p class="text-base-content/60">
+                                Select a conversation from the sidebar to start chatting
+                            </p>
+                            <div class="flex justify-center gap-2 pt-2">
+                                <button onclick="openNewChatModal()" class="btn btn-sm btn-outline gap-2">
+                                    <i data-lucide="search" class="size-4"></i> Find Friends
+                                </button>
+                                <button onclick="toggleGroupModal(true)" class="btn btn-sm btn-primary gap-2">
+                                    <i data-lucide="users" class="size-4"></i> New Group
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="bg-slate-950 p-2 rounded border border-slate-800">
-                        <div class="text-slate-400">Refresh Token (SHA-256 Rotation):</div>
-                        <div id="refreshTokenPreview" class="font-mono text-slate-300 truncate mt-0.5">Chưa có</div>
+
+                    <!-- ACTIVE CHAT CONTAINER (ChatContainer.jsx replica) -->
+                    <div id="chatContainer" class="hidden flex-1 flex flex-col overflow-auto bg-base-100">
+                        <!-- ChatHeader.jsx -->
+                        <div class="p-3.5 border-b border-base-300 flex items-center justify-between bg-base-100 shrink-0">
+                            <div class="flex items-center gap-3">
+                                <!-- Avatar -->
+                                <div class="avatar">
+                                    <div class="size-10 rounded-full relative ring-1 ring-base-300">
+                                        <img id="activeRoomAvatar" src="" alt="Room Avatar" class="object-cover" />
+                                    </div>
+                                </div>
+                                <!-- Room Info -->
+                                <div>
+                                    <h3 id="activeRoomTitle" class="font-medium leading-tight">Room Name</h3>
+                                    <p id="activeRoomMeta" class="text-xs text-base-content/70">Online</p>
+                                </div>
+                            </div>
+
+                            <!-- Right Header Controls -->
+                            <div class="flex items-center gap-1">
+                                <button onclick="closeActiveChat()" class="btn btn-sm btn-ghost btn-circle" title="Đóng cuộc trò chuyện">
+                                    <i data-lucide="x" class="size-5"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Messages Feed -->
+                        <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
+                            <!-- DaisyUI chat-start and chat-end bubbles populated here -->
+                        </div>
+
+                        <!-- MessageInput.jsx -->
+                        <div class="p-4 w-full border-t border-base-300 bg-base-100 shrink-0">
+                            <!-- Image Attachment Preview -->
+                            <div id="imagePreviewWrapper" class="hidden mb-3 flex items-center gap-2">
+                                <div class="relative">
+                                    <img id="imagePreviewEl" src="" alt="Preview"
+                                        class="w-20 h-20 object-cover rounded-lg border border-base-300" />
+                                    <button type="button" onclick="removeImageAttachment()"
+                                        class="w-5 h-5 rounded-full bg-base-300 flex items-center justify-center absolute -top-1.5 -right-1.5 hover:bg-error hover:text-error-content transition">
+                                        <i data-lucide="x" class="size-3"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <form id="messageForm" onsubmit="sendRealtimeMessage(event)" class="flex items-center gap-2">
+                                <div class="flex-1 flex gap-2">
+                                    <input id="messageInput" type="text" autocomplete="off"
+                                        class="w-full input input-bordered rounded-lg input-sm sm:input-md"
+                                        placeholder="Type a message..." />
+                                    <input id="imageFileInput" type="file" accept="image/*" class="hidden"
+                                        onchange="handleImageAttachment(event)" />
+                                    <button type="button" onclick="document.getElementById('imageFileInput').click()"
+                                        id="imageAttachBtn"
+                                        class="flex btn btn-circle btn-sm sm:btn-md text-base-content/60 hover:text-primary"
+                                        title="Đính kèm hình ảnh">
+                                        <i data-lucide="image" class="size-5"></i>
+                                    </button>
+                                </div>
+                                <button type="submit" id="sendMessageBtn" class="btn btn-sm sm:btn-md btn-circle btn-primary">
+                                    <i data-lucide="send" class="size-5"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- VIEW 3: SETTINGS PAGE (SettingsPage.jsx: 32 DaisyUI Themes + Preview) -->
+    <!-- ===================================================================== -->
+    <section id="settingsView" class="hidden min-h-screen container mx-auto px-4 pt-20 max-w-5xl pb-12">
+        <div class="space-y-6">
+            <div class="flex items-center justify-between">
+                <div class="flex flex-col gap-1">
+                    <h2 class="text-lg font-semibold">Theme</h2>
+                    <p class="text-sm text-base-content/70">Choose a theme for your chat interface</p>
+                </div>
+                <button onclick="navigateTo('home')" class="btn btn-sm btn-outline gap-2">
+                    <i data-lucide="arrow-left" class="size-4"></i> Back to Chat
+                </button>
+            </div>
+
+            <!-- 32 DaisyUI Theme Grid -->
+            <div id="themeGridContainer" class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                <!-- Populated dynamically by app.js -->
+            </div>
+
+            <!-- Live Preview Section (Exact replica of SettingsPage.jsx) -->
+            <h3 class="text-lg font-semibold mb-3">Preview</h3>
+            <div class="rounded-xl border border-base-300 overflow-hidden bg-base-100 shadow-lg">
+                <div class="p-4 bg-base-200">
+                    <div class="max-w-lg mx-auto">
+                        <!-- Mock Chat UI -->
+                        <div class="bg-base-100 rounded-xl shadow-sm overflow-hidden">
+                            <!-- Chat Header -->
+                            <div class="px-4 py-3 border-b border-base-300 bg-base-100">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-content font-medium">
+                                        J
+                                    </div>
+                                    <div>
+                                        <h3 class="font-medium text-sm">John Doe</h3>
+                                        <p class="text-xs text-base-content/70">Online</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Chat Messages -->
+                            <div class="p-4 space-y-4 min-h-[200px] max-h-[200px] overflow-y-auto bg-base-100">
+                                <div class="flex justify-start">
+                                    <div class="max-w-[80%] rounded-xl p-3 shadow-sm bg-base-200">
+                                        <p class="text-sm">Hey! How's it going?</p>
+                                        <p class="text-[10px] mt-1.5 text-base-content/70">12:00 PM</p>
+                                    </div>
+                                </div>
+                                <div class="flex justify-end">
+                                    <div class="max-w-[80%] rounded-xl p-3 shadow-sm bg-primary text-primary-content">
+                                        <p class="text-sm">I'm doing great! Just working on some new features.</p>
+                                        <p class="text-[10px] mt-1.5 text-primary-content/70">12:01 PM</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Chat Input -->
+                            <div class="p-4 border-t border-base-300 bg-base-100">
+                                <div class="flex gap-2">
+                                    <input type="text" class="input input-bordered flex-1 text-sm h-10"
+                                        placeholder="Type a message..." value="This is a preview" readonly />
+                                    <button class="btn btn-primary h-10 min-h-0">
+                                        <i data-lucide="send" class="size-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
+    </section>
 
-            <!-- STOMP & REST Protocol Log -->
-            <div class="px-3.5 py-2 border-b border-slate-800 flex items-center justify-between">
-                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Nhật ký STOMP / REST</span>
-                <button onclick="clearLogs()" class="text-[11px] text-slate-400 hover:text-white">Xóa log</button>
+    <!-- ===================================================================== -->
+    <!-- VIEW 4: PROFILE PAGE (ProfilePage.jsx replica)                        -->
+    <!-- ===================================================================== -->
+    <section id="profileView" class="hidden min-h-screen pt-20 pb-12">
+        <div class="max-w-2xl mx-auto p-4 py-8">
+            <div class="bg-base-300 rounded-xl p-6 space-y-8">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-semibold">Profile</h1>
+                        <p class="mt-1 text-sm text-base-content/70">Your profile information</p>
+                    </div>
+                    <button onclick="navigateTo('home')" class="btn btn-sm btn-outline gap-2">
+                        <i data-lucide="arrow-left" class="size-4"></i> Back to Chat
+                    </button>
+                </div>
+
+                <!-- Avatar Upload Section -->
+                <div class="flex flex-col items-center gap-4">
+                    <div class="relative">
+                        <img id="profileAvatarImg" src="" alt="Profile"
+                            class="size-32 rounded-full object-cover border-4 border-base-100 shadow-md" />
+                        <label for="avatarUploadInput"
+                            class="absolute bottom-0 right-0 bg-base-content hover:scale-105 p-2 rounded-full cursor-pointer transition-all duration-200">
+                            <i data-lucide="camera" class="w-5 h-5 text-base-200"></i>
+                            <input type="file" id="avatarUploadInput" class="hidden" accept="image/*"
+                                onchange="handleProfileAvatarUpload(event)" />
+                        </label>
+                    </div>
+                    <p id="avatarUploadStatus" class="text-sm text-base-content/60">
+                        Click the camera icon to update your photo or choose a preset below
+                    </p>
+                    <!-- Preset Avatars for 1-Click Selection -->
+                    <div id="presetAvatarsRow" class="flex flex-wrap justify-center gap-2"></div>
+                </div>
+
+                <!-- Profile Details Form -->
+                <form onsubmit="saveProfileChanges(event)" class="space-y-5">
+                    <div class="space-y-1.5">
+                        <div class="text-sm text-base-content/60 flex items-center gap-2">
+                            <i data-lucide="user" class="w-4 h-4"></i>
+                            Full Name
+                        </div>
+                        <input id="profileFullNameInput" type="text" required
+                            class="input input-bordered w-full bg-base-200" />
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <div class="text-sm text-base-content/60 flex items-center gap-2">
+                            <i data-lucide="at-sign" class="w-4 h-4"></i>
+                            Username
+                        </div>
+                        <p id="profileUsernameDisplay" class="px-4 py-2.5 bg-base-200 rounded-lg border border-base-content/10 text-sm opacity-80"></p>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <div class="text-sm text-base-content/60 flex items-center gap-2">
+                            <i data-lucide="mail" class="w-4 h-4"></i>
+                            Email Address
+                        </div>
+                        <p id="profileEmailDisplay" class="px-4 py-2.5 bg-base-200 rounded-lg border border-base-content/10 text-sm opacity-80"></p>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <div class="text-sm text-base-content/60 flex items-center gap-2">
+                            <i data-lucide="file-text" class="w-4 h-4"></i>
+                            Bio
+                        </div>
+                        <input id="profileBioInput" type="text" maxlength="255" placeholder="Write a short bio about yourself..."
+                            class="input input-bordered w-full bg-base-200" />
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="submit" id="saveProfileBtn" class="btn btn-primary btn-sm gap-2">
+                            <i data-lucide="check" class="size-4"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Account Information Box -->
+                <div class="mt-6 bg-base-200 rounded-xl p-6">
+                    <h2 class="text-lg font-medium mb-4">Account Information</h2>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex items-center justify-between py-2 border-b border-base-300">
+                            <span>Member Since</span>
+                            <span id="profileMemberSince" class="font-medium">—</span>
+                        </div>
+                        <div class="flex items-center justify-between py-2 border-b border-base-300">
+                            <span>Account Status</span>
+                            <span class="text-success font-medium flex items-center gap-1.5">
+                                <span class="size-2 rounded-full bg-success"></span> Active
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between py-2">
+                            <span>Security Session</span>
+                            <button type="button" onclick="refreshAccessToken(false)" class="btn btn-xs btn-outline gap-1.5">
+                                <i data-lucide="refresh-cw" class="size-3"></i> Rotate JWT Token
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div id="protocolLogContainer" class="flex-1 overflow-y-auto p-3 space-y-2 font-mono text-[11px] bg-slate-950/60"></div>
-        </aside>
+        </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 1: CREATE GROUP CHAT                                            -->
+    <!-- ===================================================================== -->
+    <div id="groupModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-base-100 border border-base-300 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-2 border-b border-base-300">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="users" class="size-5 text-primary"></i>
+                    <h3 class="font-bold text-base">Create Group Chat</h3>
+                </div>
+                <button onclick="toggleGroupModal(false)" class="btn btn-sm btn-ghost btn-circle">
+                    <i data-lucide="x" class="size-4"></i>
+                </button>
+            </div>
+
+            <form onsubmit="createGroupRoom(event)" class="space-y-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text font-medium">Group Name</span>
+                    </label>
+                    <input id="groupNameInput" type="text" required placeholder="e.g. Project Team 24"
+                        class="input input-bordered w-full" />
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text font-medium">Select Members</span>
+                        <span id="selectedMembersCount" class="label-text-alt text-primary font-medium">0 selected</span>
+                    </label>
+                    <div id="groupMembersPicker" class="max-h-52 overflow-y-auto border border-base-300 rounded-xl divide-y divide-base-200 p-1 bg-base-200/40">
+                        <!-- Checkboxes populated dynamically -->
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="toggleGroupModal(false)" class="btn btn-ghost">Cancel</button>
+                    <button type="submit" class="btn btn-primary gap-2">
+                        <i data-lucide="check" class="size-4"></i> Create Group
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 
-    <!-- MODAL: Create Group Room -->
-    <div id="groupModal" class="hidden fixed inset-0 bg-black/70 z-30 flex items-center justify-center p-4">
-        <div class="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-xl">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-                <h3 class="font-bold text-sm text-white">Tạo phòng chat nhóm (POST /api/v1/rooms/group)</h3>
-                <button onclick="toggleGroupModal(false)" class="text-slate-400 hover:text-white text-lg">&times;</button>
+    <!-- ===================================================================== -->
+    <!-- MODAL 2: NEW DIRECT CHAT / FIND USERS                                 -->
+    <!-- ===================================================================== -->
+    <div id="newChatModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-base-100 border border-base-300 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-2 border-b border-base-300">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="message-Square-plus" class="size-5 text-primary"></i>
+                    <h3 class="font-bold text-base">Start Direct Conversation</h3>
+                </div>
+                <button onclick="closeNewChatModal()" class="btn btn-sm btn-ghost btn-circle">
+                    <i data-lucide="x" class="size-4"></i>
+                </button>
             </div>
-            <form onsubmit="createGroupRoom(event)" class="space-y-4">
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">Tên nhóm chat</label>
-                    <input id="groupNameInput" type="text" required placeholder="VD: Nhóm Đồ Án 24"
-                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">Danh sách User ID thành viên (cách nhau bằng dấu phẩy)</label>
-                    <input id="groupMemberIdsInput" type="text" required placeholder="VD: 2, 3"
-                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
-                    <p class="text-[11px] text-slate-500 mt-1">Mẹo: Dùng ô Tìm kiếm người dùng bên trái để xem ID của từng tài khoản.</p>
-                </div>
-                <div class="flex justify-end gap-2 pt-2">
-                    <button type="button" onclick="toggleGroupModal(false)"
-                        class="px-4 py-2 rounded-lg text-xs bg-slate-800 text-slate-300 hover:bg-slate-700">Hủy</button>
-                    <button type="submit"
-                        class="px-4 py-2 rounded-lg text-xs bg-indigo-600 text-white font-semibold hover:bg-indigo-500">Tạo nhóm</button>
-                </div>
-            </form>
+
+            <div class="relative">
+                <i data-lucide="search" class="size-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-base-content/40"></i>
+                <input id="modalUserSearchInput" type="text" oninput="filterModalUsers(this.value)"
+                    placeholder="Search by username or full name..."
+                    class="input input-bordered w-full pl-10" />
+            </div>
+
+            <div id="modalUserListContainer" class="max-h-64 overflow-y-auto divide-y divide-base-200 border border-base-300 rounded-xl">
+                <!-- Populated dynamically -->
+            </div>
         </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 3: IMAGE LIGHTBOX                                               -->
+    <!-- ===================================================================== -->
+    <div id="imageLightbox" onclick="closeImageLightbox()" class="hidden fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4 cursor-zoom-out">
+        <img id="lightboxImg" src="" alt="Full view" class="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
     </div>
 
     <script src="app.js"></script>

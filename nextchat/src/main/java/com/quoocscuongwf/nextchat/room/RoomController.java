@@ -65,6 +65,15 @@ public class RoomController {
         return ApiResponse.success("Messages retrieved successfully", messagePage);
     }
 
+    @PostMapping("/{roomId}/read")
+    public ApiResponse<Void> markRoomAsRead(
+            @PathVariable Long roomId,
+            Authentication authentication) {
+        Long currentUserId = getCurrentUserId(authentication);
+        roomService.markRoomAsRead(currentUserId, roomId);
+        return ApiResponse.success("Room marked as read", null);
+    }
+
     private Long getCurrentUserId(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof UserDetails details)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
