@@ -44,5 +44,8 @@ public class RoomWebSocketController {
         MessageDTO message = roomService.sendMessage(
                 userId, roomId, request.content(), request.messageType(), request.replyToMessageId());
         messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
+        for (Long participantUserId : roomService.getActiveParticipantUserIds(roomId)) {
+            messagingTemplate.convertAndSend("/topic/user/" + participantUserId, message);
+        }
     }
 }

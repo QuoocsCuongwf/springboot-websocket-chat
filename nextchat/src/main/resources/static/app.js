@@ -31,6 +31,8 @@ const PRESET_AVATARS = [
 // Application State
 let stompClient = null;
 let roomSubscriptions = new Map(); // roomId -> StompSubscription
+let userSubscription = null;       // /topic/user/{userId} subscription
+let processedMessageIds = new Set(); // Prevent duplicate handling between room & user topics
 let roomsList = [];
 let contactsList = [];
 let activeRoom = null;
@@ -39,7 +41,20 @@ let currentView = 'auth'; // 'auth' | 'home' | 'settings' | 'profile'
 let sidebarFilter = 'all'; // 'all' | 'direct' | 'group' | 'contacts'
 let sidebarSearchQuery = '';
 let pendingImageDataUrl = null;
+let pendingCompactImageDataUrl = null;
 let selectedGroupMemberIds = new Set();
+
+// Session storage helpers (tab-isolated so multiple tabs can log in as Alice & Bob simultaneously)
+function getSessionItem(key) {
+    return sessionStorage.getItem(key) || localStorage.getItem(key);
+}
+function setSessionItem(key, val) {
+    sessionStorage.setItem(key, val);
+}
+function removeSessionItem(key) {
+    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+}
 
 // =====================================================================
 // INITIALIZATION
@@ -50,12 +65,34 @@ window.addEventListener('DOMContentLoaded', () => {
     renderPresetAvatars();
     refreshIcons();
 
-    const savedToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-    const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
+    // Support Ctrl+V pasting images directly into chat
+    document.addEventListener('paste', (e) => {
+        if (currentView !== 'home' || !activeRoom) return;
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type && item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) {
+                    e.preventDefault();
+                    prepareImageFileForChat(file);
+                    break;
+                }
+            }
+        }
+    });
+
+    const savedToken = getSessionItem(STORAGE_KEYS.ACCESS_TOKEN);
+    const savedUser = getSessionItem(STORAGE_KEYS.USER);
 
     if (savedToken && savedUser) {
         try {
             currentUser = JSON.parse(savedUser);
+            // Migrate into tab-isolated sessionStorage
+            setSessionItem(STORAGE_KEYS.ACCESS_TOKEN, savedToken);
+            setSessionItem(STORAGE_KEYS.USER, savedUser);
+            const savedRefresh = getSessionItem(STORAGE_KEYS.REFRESH_TOKEN);
+            if (savedRefresh) setSessionItem(STORAGE_KEYS.REFRESH_TOKEN, savedRefresh);
             onAuthenticatedSuccess();
         } catch (e) {
             logout();
@@ -118,7 +155,7 @@ function renderThemeGrid() {
 // VIEW NAVIGATION & TOASTS
 // =====================================================================
 function navigateTo(view) {
-    const isAuthenticated = Boolean(localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN) && currentUser);
+    const isAuthenticated = Boolean(getSessionItem(STORAGE_KEYS.ACCESS_TOKEN) && currentUser);
 
     if (!isAuthenticated && (view === 'home' || view === 'profile')) {
         view = 'auth';
@@ -145,14 +182,18 @@ function navigateTo(view) {
         }
     });
 
-    // Update top navbar visibility
+    // Update top navbar visibility & active user info
     const navAuthActions = document.getElementById('navAuthActions');
     const navWsBadge = document.getElementById('navWsBadge');
-    if (isAuthenticated) {
+    if (isAuthenticated && currentUser) {
         navAuthActions.classList.remove('hidden');
         navAuthActions.classList.add('flex');
         navWsBadge.classList.remove('hidden');
         navWsBadge.classList.add('sm:flex');
+        const navAvatar = document.getElementById('navUserAvatar');
+        const navName = document.getElementById('navUserName');
+        if (navAvatar) navAvatar.src = getUserAvatarUrl(currentUser);
+        if (navName) navName.textContent = `${currentUser.fullName || currentUser.username} (@${currentUser.username})`;
     } else {
         navAuthActions.classList.add('hidden');
         navAuthActions.classList.remove('flex');
@@ -241,7 +282,7 @@ async function apiFetch(path, options = {}, retry = true) {
         ...(options.headers || {})
     };
 
-    const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+    const accessToken = getSessionItem(STORAGE_KEYS.ACCESS_TOKEN);
     if (accessToken && !options.skipAuth) {
         headers['Authorization'] = `Bearer ${accessToken}`;
     }
@@ -419,7 +460,7 @@ async function handleRegister(event) {
 }
 
 async function refreshAccessToken(silent = false) {
-    const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    const refreshToken = getSessionItem(STORAGE_KEYS.REFRESH_TOKEN);
     if (!refreshToken) return false;
 
     try {
@@ -444,11 +485,11 @@ async function refreshAccessToken(silent = false) {
 }
 
 function saveAuthSession(authData) {
-    localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, authData.accessToken);
-    localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, authData.refreshToken);
+    setSessionItem(STORAGE_KEYS.ACCESS_TOKEN, authData.accessToken);
+    setSessionItem(STORAGE_KEYS.REFRESH_TOKEN, authData.refreshToken);
     if (authData.user) {
         currentUser = authData.user;
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(authData.user));
+        setSessionItem(STORAGE_KEYS.USER, JSON.stringify(authData.user));
     }
 }
 
@@ -456,7 +497,7 @@ async function onAuthenticatedSuccess() {
     try {
         const me = await apiFetch('/api/v1/users/me');
         currentUser = me;
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(me));
+        setSessionItem(STORAGE_KEYS.USER, JSON.stringify(me));
     } catch (e) {
         // Keep cached user
     }
@@ -471,13 +512,14 @@ function logout() {
     if (stompClient && stompClient.connected) {
         stompClient.disconnect();
     }
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    removeSessionItem(STORAGE_KEYS.ACCESS_TOKEN);
+    removeSessionItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeSessionItem(STORAGE_KEYS.USER);
     currentUser = null;
     activeRoom = null;
     roomsList = [];
     contactsList = [];
+    processedMessageIds.clear();
 
     closeActiveChat();
     updateWsStatus(false);
@@ -488,7 +530,7 @@ function logout() {
 // WEBSOCKET STOMP & MULTI-ROOM SUBSCRIPTIONS
 // =====================================================================
 function connectWebSocket() {
-    const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+    const accessToken = getSessionItem(STORAGE_KEYS.ACCESS_TOKEN);
     if (!accessToken) return;
 
     if (stompClient && stompClient.connected) {
@@ -535,10 +577,28 @@ function unsubscribeAllRooms() {
         try { sub.unsubscribe(); } catch (e) {}
     });
     roomSubscriptions.clear();
+    if (userSubscription) {
+        try { userSubscription.unsubscribe(); } catch (e) {}
+        userSubscription = null;
+    }
 }
 
 function subscribeAllUserRooms() {
     if (!stompClient || !stompClient.connected) return;
+
+    if (currentUser && currentUser.id && !userSubscription) {
+        userSubscription = stompClient.subscribe(`/topic/user/${currentUser.id}`, (stompFrame) => {
+            try {
+                const incomingMsg = JSON.parse(stompFrame.body);
+                const msgRoomId = incomingMsg.roomId || incomingMsg.conversationId;
+                if (msgRoomId) {
+                    handleIncomingRealtimeMessage(msgRoomId, incomingMsg);
+                }
+            } catch (err) {
+                console.error('Failed to parse user topic STOMP message:', err);
+            }
+        });
+    }
 
     roomsList.forEach(room => {
         ensureRoomSubscription(room.id);
@@ -563,6 +623,13 @@ function ensureRoomSubscription(roomId) {
 }
 
 async function handleIncomingRealtimeMessage(roomId, msg) {
+    if (msg && msg.id != null) {
+        if (processedMessageIds.has(msg.id)) {
+            return;
+        }
+        processedMessageIds.add(msg.id);
+    }
+
     const isCurrentRoom = activeRoom && activeRoom.id === roomId;
     const isFromMe = currentUser && (msg.senderId === currentUser.id || msg.senderUsername === currentUser.username);
 
@@ -881,15 +948,19 @@ function appendMessageBubble(msg, autoScroll = true) {
         });
 
     const timeStr = formatMessageTime(msg.createdAt);
-    const isImage = msg.messageType === 'IMAGE' || (msg.content && msg.content.startsWith('data:image/'));
+    const contentStr = msg.content || '';
+    const isImage = msg.messageType === 'IMAGE' ||
+        contentStr.startsWith('data:image/') ||
+        contentStr.startsWith('/api/v1/rooms/attachments/') ||
+        /^https?:\/\/.+\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(contentStr);
 
     const chatEl = document.createElement('div');
     chatEl.className = `chat ${isMine ? 'chat-end' : 'chat-start'} animate-fade-in`;
 
     const bodyHtml = isImage
-        ? `<img src="${escapeHtml(msg.content)}" alt="Attachment" onclick="openImageLightbox('${escapeHtml(msg.content)}')"
-                class="sm:max-w-[220px] rounded-lg mb-1 cursor-zoom-in border border-base-300 hover:opacity-95 transition" />`
-        : `<p class="text-sm leading-relaxed break-words">${escapeHtml(msg.content || '')}</p>`;
+        ? `<img src="${escapeHtml(contentStr)}" alt="Attachment" onclick="openImageLightbox(this.src)"
+                class="sm:max-w-[300px] max-h-[300px] object-contain rounded-lg mb-1 cursor-zoom-in border border-base-300 hover:opacity-95 transition bg-base-200/40" />`
+        : `<p class="text-sm leading-relaxed break-words">${escapeHtml(contentStr)}</p>`;
 
     chatEl.innerHTML = `
         <div class="chat-image avatar">
@@ -918,29 +989,65 @@ function appendMessageBubble(msg, autoScroll = true) {
 function handleImageAttachment(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    prepareImageFileForChat(file);
+}
 
+function prepareImageFileForChat(file) {
     if (!file.type.startsWith('image/')) {
         showToast('Please select an image file', 'error');
         return;
     }
 
-    compressImageFile(file, 480, 0.72, (dataUrl) => {
-        pendingImageDataUrl = dataUrl;
-        document.getElementById('imagePreviewEl').src = dataUrl;
-        document.getElementById('imagePreviewWrapper').classList.remove('hidden');
-        document.getElementById('imagePreviewWrapper').classList.add('flex');
-    });
+    // Keep 100% original lossless image quality (PNG/JPEG/WebP) when <= 8MB
+    if (file.size <= 8 * 1024 * 1024) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const originalDataUrl = e.target.result;
+            pendingImageDataUrl = originalDataUrl;
+            pendingCompactImageDataUrl = originalDataUrl;
+            document.getElementById('imagePreviewEl').src = originalDataUrl;
+            document.getElementById('imagePreviewWrapper').classList.remove('hidden');
+            document.getElementById('imagePreviewWrapper').classList.add('flex');
+            const attachBtn = document.getElementById('imageAttachBtn');
+            if (attachBtn) {
+                attachBtn.classList.add('text-emerald-500');
+                attachBtn.classList.remove('text-base-content/60');
+            }
+            document.getElementById('messageInput')?.focus();
+        };
+        reader.readAsDataURL(file);
+    } else {
+        compressImageFile(file, 2560, 0.95, (highResDataUrl) => {
+            pendingImageDataUrl = highResDataUrl;
+            pendingCompactImageDataUrl = highResDataUrl;
+            document.getElementById('imagePreviewEl').src = highResDataUrl;
+            document.getElementById('imagePreviewWrapper').classList.remove('hidden');
+            document.getElementById('imagePreviewWrapper').classList.add('flex');
+            const attachBtn = document.getElementById('imageAttachBtn');
+            if (attachBtn) {
+                attachBtn.classList.add('text-emerald-500');
+                attachBtn.classList.remove('text-base-content/60');
+            }
+            document.getElementById('messageInput')?.focus();
+        });
+    }
 }
 
 function removeImageAttachment() {
     pendingImageDataUrl = null;
+    pendingCompactImageDataUrl = null;
     const fileInput = document.getElementById('imageFileInput');
     if (fileInput) fileInput.value = '';
     document.getElementById('imagePreviewWrapper').classList.add('hidden');
     document.getElementById('imagePreviewWrapper').classList.remove('flex');
+    const attachBtn = document.getElementById('imageAttachBtn');
+    if (attachBtn) {
+        attachBtn.classList.remove('text-emerald-500');
+        attachBtn.classList.add('text-base-content/60');
+    }
 }
 
-function sendRealtimeMessage(event) {
+async function sendRealtimeMessage(event) {
     event.preventDefault();
     if (!activeRoom) return;
 
@@ -959,12 +1066,36 @@ function sendRealtimeMessage(event) {
 
     // Send attached image if present
     if (pendingImageDataUrl) {
+        const highResToSend = pendingImageDataUrl;
+        const compactToSend = pendingCompactImageDataUrl || pendingImageDataUrl;
+        removeImageAttachment();
+
+        let imagePayloadContent = compactToSend;
+        try {
+            const token = getSessionItem(STORAGE_KEYS.ACCESS_TOKEN);
+            const res = await fetch('/api/v1/rooms/attachments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({ image: highResToSend })
+            });
+            if (res.ok) {
+                const json = await res.json();
+                if (json?.data?.url) {
+                    imagePayloadContent = json.data.url;
+                }
+            }
+        } catch (err) {
+            // Fallback to compact base64 payload over STOMP
+        }
+
         stompClient.send(destination, {}, JSON.stringify({
-            content: pendingImageDataUrl,
+            content: imagePayloadContent,
             messageType: 'IMAGE',
             replyToMessageId: null
         }));
-        removeImageAttachment();
     }
 
     // Send text message if present
@@ -976,6 +1107,48 @@ function sendRealtimeMessage(event) {
         }));
         input.value = '';
     }
+}
+
+function compressImageToMaxChars(file, maxChars, callback) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+            const steps = [
+                { dim: 360, q: 0.68 },
+                { dim: 280, q: 0.60 },
+                { dim: 220, q: 0.55 },
+                { dim: 180, q: 0.50 },
+                { dim: 140, q: 0.45 }
+            ];
+            let result = '';
+            for (const step of steps) {
+                let width = img.width;
+                let height = img.height;
+                if (width > step.dim || height > step.dim) {
+                    if (width > height) {
+                        height = Math.round((height * step.dim) / width);
+                        width = step.dim;
+                    } else {
+                        width = Math.round((width * step.dim) / height);
+                        height = step.dim;
+                    }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, width);
+                canvas.height = Math.max(1, height);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                result = canvas.toDataURL('image/jpeg', step.q);
+                if (result.length <= maxChars) {
+                    break;
+                }
+            }
+            callback(result);
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
 }
 
 function compressImageFile(file, maxDim, quality, callback) {
@@ -1229,8 +1402,9 @@ async function updateUserProfileOnServer(fields) {
             body: JSON.stringify(fields)
         });
         currentUser = updated;
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updated));
+        setSessionItem(STORAGE_KEYS.USER, JSON.stringify(updated));
         populateProfileView();
+        navigateTo('profile');
         await Promise.all([loadRooms(), loadContacts()]);
         showToast('Profile updated successfully!', 'success');
     } catch (err) {
@@ -1239,18 +1413,138 @@ async function updateUserProfileOnServer(fields) {
 }
 
 // =====================================================================
-// LIGHTBOX & UTILITIES
+// LIGHTBOX (INTERACTIVE ZOOM IN / ZOOM OUT / PAN / DOWNLOAD) & UTILITIES
 // =====================================================================
+let lightboxScale = 1;
+let lightboxPanX = 0;
+let lightboxPanY = 0;
+let isLightboxDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+
+function initLightboxInteractions() {
+    const box = document.getElementById('imageLightbox');
+    const img = document.getElementById('lightboxImg');
+    if (!box || !img) return;
+
+    // Mouse wheel to zoom in/out smoothly
+    box.addEventListener('wheel', (e) => {
+        if (box.classList.contains('hidden')) return;
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.2 : -0.2;
+        changeLightboxZoom(delta);
+    }, { passive: false });
+
+    // Drag to pan image
+    img.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        isLightboxDragging = true;
+        dragStartX = e.clientX - lightboxPanX;
+        dragStartY = e.clientY - lightboxPanY;
+        img.style.transition = 'none';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isLightboxDragging) return;
+        lightboxPanX = e.clientX - dragStartX;
+        lightboxPanY = e.clientY - dragStartY;
+        applyLightboxTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (!isLightboxDragging) return;
+        isLightboxDragging = false;
+        const imgEl = document.getElementById('lightboxImg');
+        if (imgEl) imgEl.style.transition = 'transform 100ms ease-out';
+    });
+
+    // Keyboard shortcuts (+, -, 0, Escape)
+    window.addEventListener('keydown', (e) => {
+        if (box.classList.contains('hidden')) return;
+        if (e.key === 'Escape') {
+            closeImageLightbox();
+        } else if (e.key === '+' || e.key === '=') {
+            e.preventDefault();
+            changeLightboxZoom(0.25);
+        } else if (e.key === '-' || e.key === '_') {
+            e.preventDefault();
+            changeLightboxZoom(-0.25);
+        } else if (e.key === '0') {
+            e.preventDefault();
+            resetLightboxZoom();
+        }
+    });
+}
+
+window.addEventListener('DOMContentLoaded', initLightboxInteractions);
+
 function openImageLightbox(src) {
     const box = document.getElementById('imageLightbox');
     const img = document.getElementById('lightboxImg');
     if (!box || !img) return;
     img.src = src;
+    resetLightboxZoom();
     box.classList.remove('hidden');
+    refreshIcons();
 }
 
 function closeImageLightbox() {
     document.getElementById('imageLightbox')?.classList.add('hidden');
+}
+
+function handleLightboxBackdropClick(event) {
+    if (event.target.id === 'imageLightbox' || event.target.id === 'lightboxViewport') {
+        closeImageLightbox();
+    }
+}
+
+function changeLightboxZoom(delta) {
+    lightboxScale = Math.min(5, Math.max(0.5, Math.round((lightboxScale + delta) * 100) / 100));
+    if (lightboxScale <= 1) {
+        lightboxPanX = 0;
+        lightboxPanY = 0;
+    }
+    applyLightboxTransform();
+}
+
+function resetLightboxZoom() {
+    lightboxScale = 1;
+    lightboxPanX = 0;
+    lightboxPanY = 0;
+    applyLightboxTransform();
+}
+
+function toggleLightboxDoubleZoom(event) {
+    event.stopPropagation();
+    if (lightboxScale > 1.1) {
+        resetLightboxZoom();
+    } else {
+        lightboxScale = 2.25;
+        applyLightboxTransform();
+    }
+}
+
+function applyLightboxTransform() {
+    const img = document.getElementById('lightboxImg');
+    const label = document.getElementById('lightboxZoomLabel');
+    if (img) {
+        img.style.transform = `translate(${lightboxPanX}px, ${lightboxPanY}px) scale(${lightboxScale})`;
+    }
+    if (label) {
+        label.textContent = `${Math.round(lightboxScale * 100)}%`;
+    }
+}
+
+function downloadLightboxImage() {
+    const img = document.getElementById('lightboxImg');
+    if (!img || !img.src) return;
+    const a = document.createElement('a');
+    a.href = img.src;
+    a.download = `chatty-image-${Date.now()}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 function escapeHtml(str) {

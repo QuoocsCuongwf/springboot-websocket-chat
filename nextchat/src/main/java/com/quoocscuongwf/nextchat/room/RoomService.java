@@ -146,6 +146,14 @@ public class RoomService {
         return MessageDTO.fromEntity(saved);
     }
 
+    @Transactional(readOnly = true)
+    public List<Long> getActiveParticipantUserIds(Long roomId) {
+        return participantRepository.findByConversationIdAndLeftAtIsNull(roomId).stream()
+                .filter(cp -> cp.getUser() != null)
+                .map(cp -> cp.getUser().getId())
+                .toList();
+    }
+
     @Transactional
     public void markRoomAsRead(Long currentUserId, Long roomId) {
         Conversation conversation = conversationRepository.findById(roomId)

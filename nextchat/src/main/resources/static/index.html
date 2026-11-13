@@ -58,9 +58,9 @@
 
                     <!-- Authenticated User Buttons (Profile & Logout) -->
                     <div id="navAuthActions" class="hidden items-center gap-2">
-                        <button onclick="navigateTo('profile')" id="navProfileBtn" class="btn btn-sm gap-2">
-                            <i data-lucide="user" class="size-5"></i>
-                            <span class="hidden sm:inline">Profile</span>
+                        <button onclick="navigateTo('profile')" id="navProfileBtn" class="btn btn-sm gap-2 px-2.5">
+                            <img id="navUserAvatar" src="" alt="Me" class="size-5 rounded-full object-cover bg-base-300" />
+                            <span id="navUserName" class="font-semibold text-xs">Profile</span>
                         </button>
 
                         <button onclick="logout()" class="btn btn-sm btn-ghost gap-2 items-center" title="Đăng xuất">
@@ -649,12 +649,48 @@
     </div>
 
     <!-- ===================================================================== -->
-    <!-- MODAL 3: IMAGE LIGHTBOX                                               -->
+    <!-- MODAL 3: INTERACTIVE IMAGE LIGHTBOX (Zoom In / Out / Pan / Download)  -->
     <!-- ===================================================================== -->
-    <div id="imageLightbox" onclick="closeImageLightbox()" class="hidden fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4 cursor-zoom-out">
-        <img id="lightboxImg" src="" alt="Full view" class="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
+    <div id="imageLightbox" onclick="handleLightboxBackdropClick(event)"
+        class="hidden fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center select-none overflow-hidden">
+
+        <!-- Top Control Bar -->
+        <div class="fixed top-4 z-50 flex items-center gap-2 bg-base-100/90 backdrop-blur-md px-4 py-2 rounded-full shadow-2xl border border-base-300"
+            onclick="event.stopPropagation()">
+            <button type="button" onclick="changeLightboxZoom(-0.25)" class="btn btn-xs sm:btn-sm btn-ghost btn-circle" title="Thu nhỏ (Zoom Out)">
+                <i data-lucide="zoom-out" class="size-4"></i>
+            </button>
+            <button type="button" onclick="resetLightboxZoom()" id="lightboxZoomLabel"
+                class="btn btn-xs sm:btn-sm btn-ghost font-mono text-xs min-w-[60px]" title="Đặt lại 100%">
+                100%
+            </button>
+            <button type="button" onclick="changeLightboxZoom(0.25)" class="btn btn-xs sm:btn-sm btn-ghost btn-circle" title="Phóng to (Zoom In)">
+                <i data-lucide="zoom-in" class="size-4"></i>
+            </button>
+            <div class="h-4 w-px bg-base-300 mx-1"></div>
+            <button type="button" onclick="downloadLightboxImage()" class="btn btn-xs sm:btn-sm btn-ghost btn-circle" title="Tải ảnh xuống">
+                <i data-lucide="download" class="size-4"></i>
+            </button>
+            <button type="button" onclick="closeImageLightbox()" class="btn btn-xs sm:btn-sm btn-error btn-circle text-white ml-1" title="Đóng (Esc)">
+                <i data-lucide="x" class="size-4"></i>
+            </button>
+        </div>
+
+        <!-- Hint text -->
+        <div class="fixed bottom-4 z-50 text-xs text-white/70 bg-black/50 px-3 py-1 rounded-full pointer-events-none">
+            Lăn chuột hoặc bấm +/- để phóng to • Kéo chuột để di chuyển ảnh • Nhấp đúp để phóng nhanh
+        </div>
+
+        <!-- Zoomable & Pannable Image Wrapper -->
+        <div id="lightboxViewport" class="w-full h-full flex items-center justify-center overflow-hidden p-6">
+            <img id="lightboxImg" src="" alt="Full view"
+                onclick="event.stopPropagation()"
+                ondblclick="toggleLightboxDoubleZoom(event)"
+                draggable="false"
+                class="max-w-[90vw] max-h-[82vh] rounded-lg shadow-2xl object-contain transition-transform duration-100 ease-out cursor-grab active:cursor-grabbing" />
+        </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=5"></script>
 </body>
 </html>

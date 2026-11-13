@@ -52,7 +52,8 @@ public class WebSecurityConfig {
                                 "/ws/**",
                                 "/ws-chat/**",
                                 "/api/v1/auth/**",
-                                "/api/v1/users/avatars/**"
+                                "/api/v1/users/avatars/**",
+                                "/api/v1/rooms/attachments/**"
                         ).permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()

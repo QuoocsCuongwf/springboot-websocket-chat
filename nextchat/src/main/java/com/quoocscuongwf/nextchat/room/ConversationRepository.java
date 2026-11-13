@@ -25,6 +25,12 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
             AND m.deleted = false
             AND m.sender.id <> :userId
             AND (cp.lastReadMessageId IS NULL OR m.id > cp.lastReadMessageId)
+            AND m.id > COALESCE((
+                SELECT MAX(m2.id) FROM Message m2
+                WHERE m2.conversation.id = cp.conversation.id
+                  AND m2.sender.id = :userId
+                  AND m2.deleted = false
+            ), 0)
         WHERE cp.user.id = :userId AND cp.leftAt IS NULL
         GROUP BY cp.conversation.id
     """)
